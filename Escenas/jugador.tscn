@@ -1,14 +1,10 @@
 [gd_scene format=3 uid="uid://c2mvfx4riraqa"]
 
 [ext_resource type="Script" uid="uid://c1uvi3jyc5s08" path="res://jugador.gd" id="1_83bx5"]
+[ext_resource type="Script" uid="uid://fcoih1ax5dcs" path="res://addons/GD-Sync/Scripts/Types/PropertySynchronizer.gd" id="2_psync"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_2ny42"]
 radius = 24.0
-
-[sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_83bx5"]
-properties/0/path = NodePath(".:posicion_red")
-properties/0/spawn = true
-properties/0/replication_mode = 1
 
 [node name="Jugador" type="CharacterBody2D" unique_id=1596055118]
 script = ExtResource("1_83bx5")
@@ -16,5 +12,10 @@ script = ExtResource("1_83bx5")
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=623252819]
 shape = SubResource("CircleShape2D_2ny42")
 
-[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="." unique_id=821548605]
-replication_config = SubResource("SceneReplicationConfig_83bx5")
+[node name="PropertySynchronizer" type="Node" parent="." unique_id=821548605]
+script = ExtResource("2_psync")
+broadcast = 2
+process = 1
+refresh_rate = 30
+node_path = NodePath("..")
+properties = PackedStringArray("posicion_red")

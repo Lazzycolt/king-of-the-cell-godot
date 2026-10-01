@@ -1,7 +1,7 @@
 class_name Partida
 extends Node2D
 ## Reglas de la partida. Solo el HOST las calcula; los clientes reciben el resultado
-## por el MultiplayerSynchronizer y lo dibujan.
+## por el PropertySynchronizer (GD-Sync) y lo dibujan.
 
 @export_group("Reglas")
 ## Segundos que la celda se queda en un lugar antes de saltar a otro.
@@ -35,28 +35,63 @@ extends Node2D
 var celda_activa := -1           # índice = fila * COLUMNAS + columna; -1 = partida sin empezar
 var tiempo_para_cambio := 0.0
 var puntos := {}                 # { id_jugador: puntos }
+var jugadores := {}              # { id_jugador: indice }  0 = host (rojo, Spawn1), 1 = invitado (azul, Spawn2)
 
 var en_curso := false            # solo se usa en el host
 
+## Cada cuánto el host reenvía TODO el estado aunque no haya cambiado (por si alguien
+## se perdió un mensaje, por ejemplo al entrar a la sala justo en ese momento).
+const REENVIO_ESTADO := 1.0
+var _reenvio := 0.0
+
 func _ready() -> void:
 	add_to_group("partida")   # así los jugadores la encuentran para reportar golpes
+	# Permitimos que cualquiera llame reportar_golpe por red (≈ @rpc("any_peer")).
+	# Igual adentro se valida todo: el host no se cree lo que le dicen.
+	GDSync.expose_func(reportar_golpe)
 
 ## Lo llama red.gd en el host al crear la partida.
 func iniciar() -> void:
 	en_curso = true
+	# Solo el host manda el estado de la partida; en las demás PCs queda en NEVER (solo recibe).
+	$PropertySynchronizer.broadcast = PropertySynchronizer.BROADCAST_MODE.ALWAYS
 	_cambiar_celda()
 
 
 ## Vuelve todo a cero. Lo llama red.gd cuando se corta la partida.
 func reiniciar() -> void:
 	en_curso = false
+	$PropertySynchronizer.broadcast = PropertySynchronizer.BROADCAST_MODE.NEVER
 	celda_activa = -1
 	puntos = {}
+	jugadores = {}
+
+
+## Solo host: anota un jugador nuevo en la lista. Cada PC lo crea al ver la lista (ver red.gd).
+func agregar_jugador(id: int) -> void:
+	if jugadores.has(id) or jugadores.size() >= 2:
+		return
+	var nueva := jugadores.duplicate()   # copia nueva para que el synchronizer note el cambio
+	nueva[id] = jugadores.size()
+	jugadores = nueva
+
+
+## Solo host: saca un jugador de la lista (sus puntos quedan en la tabla).
+func quitar_jugador(id: int) -> void:
+	if not jugadores.has(id):
+		return
+	var nueva := jugadores.duplicate()
+	nueva.erase(id)
+	jugadores = nueva
 
 
 func _physics_process(delta: float) -> void:
 	if en_curso:
 		_actualizar_reglas(delta)   # solo pasa en el host
+		_reenvio -= delta
+		if _reenvio <= 0.0:
+			_reenvio = REENVIO_ESTADO
+			$PropertySynchronizer.synchronize(true, true)
 	queue_redraw()
 	_actualizar_hud()               # pasa en todas las PCs
 
@@ -70,22 +105,37 @@ func _actualizar_reglas(delta: float) -> void:
 
 	var adentro := []
 	for jugador in contenedor_jugadores.get_children():
-		if celda_en_posicion(jugador.position) == celda_activa:
+		# posicion_red = la posición real que llegó (position está suavizada y va atrasada)
+		if jugador is Jugador and celda_en_posicion(jugador.posicion_red) == celda_activa:
 			adentro.append(jugador)
 	if solo_suma_si_esta_solo and adentro.size() > 1:
 		return
 	for jugador in adentro:
-		var id: int = jugador.name.to_int()
+		var id: int = jugador.id_dueno
 		puntos[id] = puntos.get(id, 0.0) + puntos_por_segundo * delta
 
-## Un jugador avisa "choqué a otro". Corre SOLO en el servidor, que valida y decide.
-@rpc("any_peer", "call_local", "reliable")
+## Lo llama un jugador cuando choca a otro. Si soy el host lo proceso directo;
+## si no, se lo mando por red (≈ reportar_golpe.rpc_id(1, ...)).
+## Usamos call_func (a todos los demás) y no call_func_on(host): en las pruebas,
+## call_func_on a veces no llegaba nunca. Los que no son host lo ignoran.
+func pedir_golpe(id_victima: int, velocidad: Vector2) -> void:
+	if GDSync.is_host():
+		_procesar_golpe(GDSync.get_client_id(), id_victima, velocidad)
+	else:
+		GDSync.call_func(reportar_golpe, id_victima, velocidad)
+
+
+## Llega por red desde un cliente. Corre SOLO en el host, que valida y decide.
 func reportar_golpe(id_victima: int, velocidad: Vector2) -> void:
-	if not multiplayer.is_server():
+	if not GDSync.is_host():
 		return
-	var id_atacante := multiplayer.get_remote_sender_id()
-	var atacante := contenedor_jugadores.get_node_or_null(str(id_atacante)) as Jugador
-	var victima := contenedor_jugadores.get_node_or_null(str(id_victima)) as Jugador
+	# get_sender_id() = quién mandó este llamado (≈ multiplayer.get_remote_sender_id())
+	_procesar_golpe(GDSync.get_sender_id(), id_victima, velocidad)
+
+
+func _procesar_golpe(id_atacante: int, id_victima: int, velocidad: Vector2) -> void:
+	var atacante := _buscar_jugador(id_atacante)
+	var victima := _buscar_jugador(id_victima)
 	if atacante == null or victima == null or atacante == victima:
 		return
 
@@ -94,8 +144,6 @@ func reportar_golpe(id_victima: int, velocidad: Vector2) -> void:
 		return   # un aturdido no puede pegar
 	if victima.inmune > 0.0:
 		return   # ya está aturdido o recién salió
-	# Usamos posicion_red (el último dato real que llegó), NO position:
-	# en el host, la position de un jugador remoto está interpolada y va unos píxeles atrás.
 	if velocidad.length() < velocidad_minima_golpe:
 		return   # fue un roce, no un golpe
 	# Usamos posicion_red (el último dato real que llegó), NO position:
@@ -108,8 +156,16 @@ func reportar_golpe(id_victima: int, velocidad: Vector2) -> void:
 
 	# --- Golpe válido: se lo aplicamos a la víctima en todas las PCs ---
 	var direccion := (victima.posicion_red - atacante.posicion_red).normalized()
-	victima.recibir_golpe.rpc(direccion * rapidez * fuerza_empuje, duracion_aturdido, duracion_inmunidad)
+	# call_func_all = se ejecuta en todas las PCs, incluida la mía (≈ .rpc() con "call_local")
+	GDSync.call_func_all(victima.recibir_golpe, direccion * rapidez * fuerza_empuje, duracion_aturdido, duracion_inmunidad)
 	print("Golpe: ", id_atacante, " → ", id_victima)
+
+func _buscar_jugador(id: int) -> Jugador:
+	for jugador in contenedor_jugadores.get_children():
+		if jugador is Jugador and jugador.id_dueno == id:
+			return jugador
+	return null
+
 
 func _cambiar_celda() -> void:
 	var opciones := []
@@ -163,6 +219,6 @@ func _actualizar_hud() -> void:
 		return
 	var texto := "Cambio de celda en %d s\n" % ceili(tiempo_para_cambio)
 	for id in puntos:
-		var nombre := "Rojo" if id == 1 else "Azul"
+		var nombre := "Rojo" if jugadores.get(id, 1) == 0 else "Azul"
 		texto += "%s: %d\n" % [nombre, roundi(puntos[id])]
 	etiqueta_hud.text = texto

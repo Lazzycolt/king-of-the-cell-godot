@@ -8,6 +8,10 @@
 
 config_version=5
 
+[GD-Sync]
+
+version="1.0"
+
 [application]
 
 config/name="Nuevo Proyecto de Juego"
@@ -15,10 +19,18 @@ run/main_scene="uid://bxfm3j8lylm0v"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
 
+[autoload]
+
+GDSync="*uid://cgo4kiocg4a4a"
+
 [display]
 
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/GD-Sync/plugin.cfg")
 
 [input]
 

@@ -28,9 +28,17 @@ var color := Color.WHITE
 @export_range(1.0, 40.0, 0.5) var suavizado := 15.0
 
 const RADIO := 24.0
+## Cada cuánto el dueño reenvía su posición aunque no haya cambiado
+## (los envíos de posición no son "reliable": si justo se pierde el último, esto lo corrige).
+const REENVIO_POSICION := 0.5
+
+# --- Datos que pone red.gd antes de agregarlo a la escena (iguales en todas las PCs) ---
+var id_dueno := -1     # id de GD-Sync del jugador que lo controla
+var indice := 0        # 0 = el host (rojo, Spawn1), 1 = el invitado (azul, Spawn2)
+var _reenvio := 0.0
 
 # Posición que viaja por la red (la escribe el dueño, la leen los demás).
-# El MultiplayerSynchronizer sincroniza ESTA variable, no "position".
+# El PropertySynchronizer (GD-Sync) sincroniza ESTA variable, no "position".
 var posicion_red := Vector2.ZERO
 var cargando := false
 var carga := 0.0
@@ -40,16 +48,20 @@ var aturdido := 0.0    # segundos que le quedan aturdido
 var inmune := 0.0      # segundos que le quedan sin poder recibir golpes
 
 
-func _enter_tree() -> void:
-	# El nombre del nodo es el id del jugador dueño (lo pone red.gd).
-	# Ese jugador pasa a ser la "autoridad": el único que lo controla.
-	set_multiplayer_authority(name.to_int())
-
-
 func _ready() -> void:
-	# El host (id 1) es rojo y el invitado azul. Se calcula igual en todas las PCs.
-	color = color_host if name.to_int() == 1 else color_invitado
+	color = color_host if indice == 0 else color_invitado
 	posicion_red = position
+	# Solo el dueño manda su posición; en las otras PCs el synchronizer solo recibe
+	# (≈ la "autoridad" del MultiplayerSynchronizer).
+	$PropertySynchronizer.broadcast = PropertySynchronizer.BROADCAST_MODE.ALWAYS if es_mio() \
+			else PropertySynchronizer.BROADCAST_MODE.NEVER
+	# Permitimos que recibir_golpe se llame por red, pero SOLO si lo llama el host (≈ @rpc + chequeo de id 1)
+	GDSync.expose_func(recibir_golpe, ENUMS.EXPOSE_PERMISSION.HOST)
+
+
+## true si este personaje lo controlo yo (≈ is_multiplayer_authority()).
+func es_mio() -> bool:
+	return id_dueno != -1 and id_dueno == GDSync.get_client_id()
 
 
 func _physics_process(delta: float) -> void:
@@ -59,14 +71,18 @@ func _physics_process(delta: float) -> void:
 	inmune = maxf(inmune - delta, 0.0)
 	# Si este personaje no es mío, no leo input ni lo muevo:
 	# su posición me llega por red desde la PC del dueño.
-	if not is_multiplayer_authority():
+	if not es_mio():
 		# Interpolación: en vez de saltar directo al último dato que llegó,
 		# nos acercamos de a poco. Así se ve fluido aunque los datos lleguen a saltos.
 		position = position.lerp(posicion_red, 1.0 - exp(-suavizado * delta))
 		return
 	_leer_input(delta)
 	_mover(delta)
-	posicion_red = position   # el dueño publica su posición real
+	posicion_red = position   # el dueño publica su posición real (la manda el PropertySynchronizer)
+	_reenvio -= delta
+	if _reenvio <= 0.0:
+		_reenvio = REENVIO_POSICION
+		$PropertySynchronizer.synchronize(true)
 
 
 func _leer_input(delta: float) -> void:
@@ -97,7 +113,7 @@ func _mover(delta: float) -> void:
 	if otro is Jugador:
 		# Choqué a otro jugador: le aviso al servidor y él decide si cuenta como golpe
 		var partida := get_tree().get_first_node_in_group("partida")
-		partida.reportar_golpe.rpc_id(1, otro.name.to_int(), velocity)
+		partida.pedir_golpe(otro.id_dueno, velocity)
 		# Le "pasé" mi velocidad: yo casi me freno
 		velocity = velocity.bounce(choque.get_normal()) * 0.2
 	else:
@@ -105,15 +121,13 @@ func _mover(delta: float) -> void:
 		velocity = velocity.bounce(choque.get_normal()) * rebote
 
 
-## El servidor la llama en TODAS las PCs cuando este jugador recibe un golpe válido.
-@rpc("any_peer", "call_local", "reliable")
+## El host la llama en TODAS las PCs (GDSync.call_func_all) cuando este jugador recibe un golpe válido.
+## Solo el host puede llamarla por red: lo controla expose_func con permiso HOST (ver _ready).
 func recibir_golpe(impulso: Vector2, tiempo_aturdido: float, tiempo_inmune: float) -> void:
-	if multiplayer.get_remote_sender_id() != 1:
-		return   # solo el servidor (id 1) puede mandar golpes
 	aturdido = tiempo_aturdido
 	inmune = tiempo_aturdido + tiempo_inmune
 	cargando = false
-	if is_multiplayer_authority():
+	if es_mio():
 		velocity = impulso   # solo el dueño mueve su personaje
 
 
