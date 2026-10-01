@@ -3,6 +3,7 @@
 [ext_resource type="Script" uid="uid://dqopac4uxexo1" path="res://Escenas/arena.gd" id="1_47x6f"]
 [ext_resource type="Script" uid="uid://bav3ko6xsf4hk" path="res://Escenas/partida.gd" id="2_dh05g"]
 [ext_resource type="Script" uid="uid://dgkkc7u4uohrq" path="res://Escenas/red.gd" id="2_ea8m7"]
+[ext_resource type="Script" uid="uid://d0c5d261d70hm" path="res://Escenas/estado_conexion.gd" id="4_honmh"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_acvco"]
 size = Vector2(860, 20)
@@ -59,6 +60,7 @@ position = Vector2(360, 240)
 [node name="Partida" type="Node2D" parent="." unique_id=315853681 node_paths=PackedStringArray("contenedor_jugadores", "etiqueta_hud")]
 script = ExtResource("2_dh05g")
 duracion_celda = 10.0
+duracion_inmunidad = 1.0
 contenedor_jugadores = NodePath("../Jugadores")
 etiqueta_hud = NodePath("../HUD/Texto")
 
@@ -108,3 +110,9 @@ offset_left = 20.0
 offset_top = 20.0
 offset_right = 60.0
 offset_bottom = 43.0
+
+[node name="Conexion" type="Label" parent="HUD" unique_id=1377955709]
+offset_left = 900.0
+offset_right = 940.0
+offset_bottom = 23.0
+script = ExtResource("4_honmh")

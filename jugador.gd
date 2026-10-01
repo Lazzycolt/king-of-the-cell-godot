@@ -23,8 +23,15 @@ var color := Color.WHITE
 ## Qué parte de la velocidad conserva al chocar una pared.[br]0 = se clava, 1 = rebota sin perder nada.
 @export_range(0.0, 1.0, 0.05) var rebote := 0.7
 
+@export_group("Red")
+## Qué tan rápido las copias de los OTROS jugadores alcanzan la posición que llega por red.[br]Más alto = más pegado al dato real pero más "a saltitos". Más bajo = más suave pero con más retraso.
+@export_range(1.0, 40.0, 0.5) var suavizado := 15.0
+
 const RADIO := 24.0
 
+# Posición que viaja por la red (la escribe el dueño, la leen los demás).
+# El MultiplayerSynchronizer sincroniza ESTA variable, no "position".
+var posicion_red := Vector2.ZERO
 var cargando := false
 var carga := 0.0
 
@@ -42,6 +49,7 @@ func _enter_tree() -> void:
 func _ready() -> void:
 	# El host (id 1) es rojo y el invitado azul. Se calcula igual en todas las PCs.
 	color = color_host if name.to_int() == 1 else color_invitado
+	posicion_red = position
 
 
 func _physics_process(delta: float) -> void:
@@ -52,9 +60,13 @@ func _physics_process(delta: float) -> void:
 	# Si este personaje no es mío, no leo input ni lo muevo:
 	# su posición me llega por red desde la PC del dueño.
 	if not is_multiplayer_authority():
+		# Interpolación: en vez de saltar directo al último dato que llegó,
+		# nos acercamos de a poco. Así se ve fluido aunque los datos lleguen a saltos.
+		position = position.lerp(posicion_red, 1.0 - exp(-suavizado * delta))
 		return
 	_leer_input(delta)
 	_mover(delta)
+	posicion_red = position   # el dueño publica su posición real
 
 
 func _leer_input(delta: float) -> void:
