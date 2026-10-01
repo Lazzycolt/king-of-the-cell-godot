@@ -97,7 +97,6 @@ text = "Conectando..."
 
 [node name="Red" type="Node" parent="." unique_id=94712918 node_paths=PackedStringArray("contenedor_jugadores", "partida", "spawns", "menu", "campo_codigo", "boton_crear", "boton_unirse", "etiqueta_estado")]
 script = ExtResource("2_ea8m7")
-modo_local = true
 contenedor_jugadores = NodePath("../Jugadores")
 partida = NodePath("../Partida")
 spawns = [NodePath("../Spawn1"), NodePath("../Spawn2")]
