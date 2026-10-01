@@ -94,16 +94,20 @@ func reportar_golpe(id_victima: int, velocidad: Vector2) -> void:
 		return   # un aturdido no puede pegar
 	if victima.inmune > 0.0:
 		return   # ya está aturdido o recién salió
+	# Usamos posicion_red (el último dato real que llegó), NO position:
+	# en el host, la position de un jugador remoto está interpolada y va unos píxeles atrás.
 	if velocidad.length() < velocidad_minima_golpe:
 		return   # fue un roce, no un golpe
-	if atacante.position.distance_to(victima.position) > distancia_maxima_golpe:
+	# Usamos posicion_red (el último dato real que llegó), NO position:
+	# en el host, la position de un jugador remoto está interpolada y va unos píxeles atrás.
+	if atacante.posicion_red.distance_to(victima.posicion_red) > distancia_maxima_golpe:
 		print("Golpe rechazado: están demasiado lejos (", id_atacante, " → ", id_victima, ")")
 		return
 	# Nadie puede ir más rápido que el salto máximo (un poco de margen)
 	var rapidez := minf(velocidad.length(), atacante.fuerza_maxima * 1.1)
 
 	# --- Golpe válido: se lo aplicamos a la víctima en todas las PCs ---
-	var direccion := (victima.position - atacante.position).normalized()
+	var direccion := (victima.posicion_red - atacante.posicion_red).normalized()
 	victima.recibir_golpe.rpc(direccion * rapidez * fuerza_empuje, duracion_aturdido, duracion_inmunidad)
 	print("Golpe: ", id_atacante, " → ", id_victima)
 
