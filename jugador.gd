@@ -2,12 +2,12 @@ class_name Jugador
 extends CharacterBody2D
 
 @export_group("Apariencia")
-## Color del jugador que crea la partida.
-@export var color_host := Color.RED
-## Color del jugador que se une.
-@export var color_invitado := Color.DODGER_BLUE
+## Color de cada jugador según el orden en que entró: 1º (host), 2º, 3º y 4º.
+@export var colores: Array[Color] = [Color.RED, Color.DODGER_BLUE, Color.LIME_GREEN, Color.GOLD]
 
 var color := Color.WHITE
+## Lugar del jugador en la partida (0 a 3): decide su color y su spawn. Lo pone red.gd al crearlo.
+var indice := 0
 
 @export_group("Salto")
 ## Velocidad con la que sale si soltás el click enseguida (píxeles por segundo).
@@ -48,7 +48,7 @@ func _enter_tree() -> void:
 
 func _ready() -> void:
 	# El host (id 1) es rojo y el invitado azul. Se calcula igual en todas las PCs.
-	color = color_host if name.to_int() == 1 else color_invitado
+	color = colores[indice % colores.size()]
 	posicion_red = position
 
 

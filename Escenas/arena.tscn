@@ -27,6 +27,9 @@ properties/1/replication_mode = 1
 properties/2/path = NodePath(".:puntos")
 properties/2/spawn = true
 properties/2/replication_mode = 1
+properties/3/path = NodePath(".:jugadores")
+properties/3/spawn = true
+properties/3/replication_mode = 1
 
 [node name="Arena" type="Node2D" unique_id=533093138]
 script = ExtResource("1_47x6f")
@@ -57,6 +60,12 @@ position = Vector2(-360, -240)
 [node name="Spawn2" type="Marker2D" parent="." unique_id=246855201]
 position = Vector2(360, 240)
 
+[node name="Spawn3" type="Marker2D" parent="." unique_id=246855202]
+position = Vector2(360, -240)
+
+[node name="Spawn4" type="Marker2D" parent="." unique_id=246855203]
+position = Vector2(-360, 240)
+
 [node name="Partida" type="Node2D" parent="." unique_id=315853681 node_paths=PackedStringArray("contenedor_jugadores", "etiqueta_hud")]
 script = ExtResource("2_dh05g")
 duracion_celda = 10.0
@@ -80,9 +89,10 @@ offset_top = 20.0
 offset_right = 60.0
 offset_bottom = 60.0
 
-[node name="IP" type="LineEdit" parent="Menu/Panel" unique_id=446101495]
+[node name="Codigo" type="LineEdit" parent="Menu/Panel" unique_id=446101495]
+custom_minimum_size = Vector2(260, 0)
 layout_mode = 2
-placeholder_text = "IP del host (vacío = esta PC)"
+placeholder_text = "Código de sala (para unirse)"
 
 [node name="Crear" type="Button" parent="Menu/Panel" unique_id=1741236224]
 layout_mode = 2
@@ -92,16 +102,21 @@ text = "Crear partida"
 layout_mode = 2
 text = "Unirse"
 
-[node name="Red" type="Node" parent="." unique_id=94712918 node_paths=PackedStringArray("spawner", "contenedor_jugadores", "partida", "spawns", "menu", "campo_ip", "boton_crear", "boton_unirse")]
+[node name="Estado" type="Label" parent="Menu/Panel" unique_id=1553607992]
+layout_mode = 2
+text = "Iniciando..."
+
+[node name="Red" type="Node" parent="." unique_id=94712918 node_paths=PackedStringArray("spawner", "contenedor_jugadores", "partida", "spawns", "menu", "campo_codigo", "boton_crear", "boton_unirse", "etiqueta_estado")]
 script = ExtResource("2_ea8m7")
 spawner = NodePath("../MultiplayerSpawner")
 contenedor_jugadores = NodePath("../Jugadores")
 partida = NodePath("../Partida")
-spawns = [NodePath("../Spawn1"), NodePath("../Spawn2")]
+spawns = [NodePath("../Spawn1"), NodePath("../Spawn2"), NodePath("../Spawn3"), NodePath("../Spawn4")]
 menu = NodePath("../Menu/Panel")
-campo_ip = NodePath("../Menu/Panel/IP")
+campo_codigo = NodePath("../Menu/Panel/Codigo")
 boton_crear = NodePath("../Menu/Panel/Crear")
 boton_unirse = NodePath("../Menu/Panel/Unirse")
+etiqueta_estado = NodePath("../Menu/Panel/Estado")
 
 [node name="HUD" type="CanvasLayer" parent="." unique_id=855042433]
 
@@ -111,8 +126,9 @@ offset_top = 20.0
 offset_right = 60.0
 offset_bottom = 43.0
 
-[node name="Conexion" type="Label" parent="HUD" unique_id=1377955709]
+[node name="Conexion" type="Label" parent="HUD" unique_id=1377955709 node_paths=PackedStringArray("red")]
 offset_left = 900.0
 offset_right = 940.0
 offset_bottom = 23.0
 script = ExtResource("4_honmh")
+red = NodePath("../../Red")

@@ -35,6 +35,10 @@ extends Node2D
 var celda_activa := -1           # índice = fila * COLUMNAS + columna; -1 = partida sin empezar
 var tiempo_para_cambio := 0.0
 var puntos := {}                 # { id_jugador: puntos }
+var jugadores := {}              # { id_jugador: indice }  el indice (0 a 3) decide color y nombre
+
+## Nombres que se muestran en el HUD, en el mismo orden que los colores del jugador.
+const NOMBRES := ["Rojo", "Azul", "Verde", "Amarillo"]
 
 var en_curso := false            # solo se usa en el host
 
@@ -52,6 +56,7 @@ func reiniciar() -> void:
 	en_curso = false
 	celda_activa = -1
 	puntos = {}
+	jugadores = {}
 
 
 func _physics_process(delta: float) -> void:
@@ -162,7 +167,11 @@ func _actualizar_hud() -> void:
 		etiqueta_hud.text = ""
 		return
 	var texto := "Cambio de celda en %d s\n" % ceili(tiempo_para_cambio)
-	for id in puntos:
-		var nombre := "Rojo" if id == 1 else "Azul"
-		texto += "%s: %d\n" % [nombre, roundi(puntos[id])]
+	for id in jugadores:
+		var nombre: String = NOMBRES[jugadores[id] % NOMBRES.size()]
+		if contenedor_jugadores.get_node_or_null(str(id)) == null:
+			if roundi(puntos.get(id, 0.0)) == 0:
+				continue           # se fue sin puntos: no lo mostramos
+			nombre += " (salió)"   # sus puntos quedan en la tabla, como dice el GDD
+		texto += "%s: %d\n" % [nombre, roundi(puntos.get(id, 0.0))]
 	etiqueta_hud.text = texto
