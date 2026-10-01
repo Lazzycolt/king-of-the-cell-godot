@@ -1,0 +1,20 @@
+[gd_scene format=3 uid="uid://c2mvfx4riraqa"]
+
+[ext_resource type="Script" uid="uid://c1uvi3jyc5s08" path="res://jugador.gd" id="1_83bx5"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_2ny42"]
+radius = 24.0
+
+[sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_83bx5"]
+properties/0/path = NodePath(".:position")
+properties/0/spawn = true
+properties/0/replication_mode = 1
+
+[node name="Jugador" type="CharacterBody2D" unique_id=1596055118]
+script = ExtResource("1_83bx5")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=623252819]
+shape = SubResource("CircleShape2D_2ny42")
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="." unique_id=821548605]
+replication_config = SubResource("SceneReplicationConfig_83bx5")

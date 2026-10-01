@@ -1,0 +1,110 @@
+[gd_scene format=3 uid="uid://bxfm3j8lylm0v"]
+
+[ext_resource type="Script" uid="uid://dqopac4uxexo1" path="res://Escenas/arena.gd" id="1_47x6f"]
+[ext_resource type="Script" uid="uid://bav3ko6xsf4hk" path="res://Escenas/partida.gd" id="2_dh05g"]
+[ext_resource type="Script" uid="uid://dgkkc7u4uohrq" path="res://Escenas/red.gd" id="2_ea8m7"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_acvco"]
+size = Vector2(860, 20)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_p5b01"]
+size = Vector2(860, 20)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_rykgy"]
+size = Vector2(20, 620)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_jlmfh"]
+size = Vector2(20, 620)
+
+[sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_honmh"]
+properties/0/path = NodePath(".:celda_activa")
+properties/0/spawn = true
+properties/0/replication_mode = 1
+properties/1/path = NodePath(".:tiempo_para_cambio")
+properties/1/spawn = true
+properties/1/replication_mode = 1
+properties/2/path = NodePath(".:puntos")
+properties/2/spawn = true
+properties/2/replication_mode = 1
+
+[node name="Arena" type="Node2D" unique_id=533093138]
+script = ExtResource("1_47x6f")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=668718962]
+
+[node name="Paredes" type="StaticBody2D" parent="." unique_id=1903654913]
+
+[node name="Arriba" type="CollisionShape2D" parent="Paredes" unique_id=36974797]
+position = Vector2(0, -310)
+shape = SubResource("RectangleShape2D_acvco")
+
+[node name="Abajo" type="CollisionShape2D" parent="Paredes" unique_id=941788710]
+position = Vector2(0, 310)
+shape = SubResource("RectangleShape2D_p5b01")
+
+[node name="Izquierda" type="CollisionShape2D" parent="Paredes" unique_id=1995804173]
+position = Vector2(-430, 0)
+shape = SubResource("RectangleShape2D_rykgy")
+
+[node name="Derecha" type="CollisionShape2D" parent="Paredes" unique_id=818964475]
+position = Vector2(430, 0)
+shape = SubResource("RectangleShape2D_jlmfh")
+
+[node name="Spawn1" type="Marker2D" parent="." unique_id=671588421]
+position = Vector2(-360, -240)
+
+[node name="Spawn2" type="Marker2D" parent="." unique_id=246855201]
+position = Vector2(360, 240)
+
+[node name="Partida" type="Node2D" parent="." unique_id=315853681 node_paths=PackedStringArray("contenedor_jugadores", "etiqueta_hud")]
+script = ExtResource("2_dh05g")
+duracion_celda = 10.0
+contenedor_jugadores = NodePath("../Jugadores")
+etiqueta_hud = NodePath("../HUD/Texto")
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="Partida" unique_id=619219609]
+replication_config = SubResource("SceneReplicationConfig_honmh")
+
+[node name="Jugadores" type="Node2D" parent="." unique_id=2031330361]
+
+[node name="MultiplayerSpawner" type="MultiplayerSpawner" parent="." unique_id=1518382595]
+spawn_path = NodePath("../Jugadores")
+
+[node name="Menu" type="CanvasLayer" parent="." unique_id=145920018]
+
+[node name="Panel" type="VBoxContainer" parent="Menu" unique_id=961789801]
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 60.0
+offset_bottom = 60.0
+
+[node name="IP" type="LineEdit" parent="Menu/Panel" unique_id=446101495]
+layout_mode = 2
+placeholder_text = "IP del host (vacío = esta PC)"
+
+[node name="Crear" type="Button" parent="Menu/Panel" unique_id=1741236224]
+layout_mode = 2
+text = "Crear partida"
+
+[node name="Unirse" type="Button" parent="Menu/Panel" unique_id=1553607991]
+layout_mode = 2
+text = "Unirse"
+
+[node name="Red" type="Node" parent="." unique_id=94712918 node_paths=PackedStringArray("spawner", "contenedor_jugadores", "partida", "spawns", "menu", "campo_ip", "boton_crear", "boton_unirse")]
+script = ExtResource("2_ea8m7")
+spawner = NodePath("../MultiplayerSpawner")
+contenedor_jugadores = NodePath("../Jugadores")
+partida = NodePath("../Partida")
+spawns = [NodePath("../Spawn1"), NodePath("../Spawn2")]
+menu = NodePath("../Menu/Panel")
+campo_ip = NodePath("../Menu/Panel/IP")
+boton_crear = NodePath("../Menu/Panel/Crear")
+boton_unirse = NodePath("../Menu/Panel/Unirse")
+
+[node name="HUD" type="CanvasLayer" parent="." unique_id=855042433]
+
+[node name="Texto" type="Label" parent="HUD" unique_id=751846254]
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 60.0
+offset_bottom = 43.0
