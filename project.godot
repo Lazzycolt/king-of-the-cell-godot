@@ -10,7 +10,8 @@ config_version=5
 
 [application]
 
-config/name="Nuevo Proyecto de Juego"
+config/name="King of the Cell"
+config/version="0.4.0"
 run/main_scene="uid://bxfm3j8lylm0v"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
@@ -23,6 +24,10 @@ window/stretch/aspect="expand"
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/godotsteam/plugin.cfg")
+
+[gui]
+
+theme/custom="res://Escenas/tema.tres"
 
 [input]
 
@@ -41,3 +46,4 @@ cargar={
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.04, 0.04, 0.07, 1)

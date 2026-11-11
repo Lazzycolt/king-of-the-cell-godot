@@ -4,6 +4,8 @@
 [ext_resource type="Script" uid="uid://bav3ko6xsf4hk" path="res://Escenas/partida.gd" id="2_dh05g"]
 [ext_resource type="Script" uid="uid://dgkkc7u4uohrq" path="res://Escenas/red.gd" id="2_ea8m7"]
 [ext_resource type="Script" uid="uid://d0c5d261d70hm" path="res://Escenas/estado_conexion.gd" id="4_honmh"]
+[ext_resource type="Script" uid="uid://cb5nldi8d6q4b" path="res://Escenas/interfaz.gd" id="5_intfz"]
+[ext_resource type="Script" path="res://Escenas/hud.gd" id="6_hud"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_acvco"]
 size = Vector2(860, 20)
@@ -30,11 +32,61 @@ properties/2/replication_mode = 1
 properties/3/path = NodePath(".:jugadores")
 properties/3/spawn = true
 properties/3/replication_mode = 1
+properties/4/path = NodePath(".:estado")
+properties/4/spawn = true
+properties/4/replication_mode = 1
+properties/5/path = NodePath(".:tiempo_restante")
+properties/5/spawn = true
+properties/5/replication_mode = 1
+properties/6/path = NodePath(".:cuenta_atras")
+properties/6/spawn = true
+properties/6/replication_mode = 1
+properties/7/path = NodePath(".:tiempo_en_celda")
+properties/7/spawn = true
+properties/7/replication_mode = 1
+properties/8/path = NodePath(".:nombres")
+properties/8/spawn = true
+properties/8/replication_mode = 1
+
+[sub_resource type="Gradient" id="Gradient_fondo"]
+colors = PackedColorArray(0.14, 0.12, 0.24, 0.9, 0.02, 0.02, 0.05, 0.97)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_fondo"]
+gradient = SubResource("Gradient_fondo")
+fill = 1
+fill_from = Vector2(0.5, 0.4)
+fill_to = Vector2(1.05, 1.05)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_controles"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 10.0
+bg_color = Color(0.05, 0.06, 0.09, 0.8)
+border_width_top = 3
+border_width_right = 3
+border_color = Color(0.35, 0.9, 0.45, 1)
+corner_radius_top_right = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tecla"]
+content_margin_left = 6.0
+content_margin_top = 1.0
+content_margin_right = 6.0
+content_margin_bottom = 2.0
+bg_color = Color(0.2, 0.22, 0.32, 1)
+border_width_bottom = 2
+border_color = Color(0.1, 0.11, 0.17, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
 
 [node name="Arena" type="Node2D" unique_id=533093138]
 script = ExtResource("1_47x6f")
 
 [node name="Camera2D" type="Camera2D" parent="." unique_id=668718962]
+position = Vector2(0, -132)
+zoom = Vector2(0.78, 0.6)
 
 [node name="Paredes" type="StaticBody2D" parent="." unique_id=1903654913]
 
@@ -66,14 +118,16 @@ position = Vector2(360, -240)
 [node name="Spawn4" type="Marker2D" parent="." unique_id=246855203]
 position = Vector2(-360, 240)
 
-[node name="Partida" type="Node2D" parent="." unique_id=315853681 node_paths=PackedStringArray("contenedor_jugadores", "spawner_objetos", "contenedor_objetos", "etiqueta_hud")]
+[node name="Partida" type="Node2D" parent="." unique_id=315853681 node_paths=PackedStringArray("contenedor_jugadores", "spawner_objetos", "contenedor_objetos", "paredes", "spawns")]
 script = ExtResource("2_dh05g")
 duracion_celda = 10.0
 duracion_inmunidad = 1.0
+max_objetos = 3
 contenedor_jugadores = NodePath("../Jugadores")
 spawner_objetos = NodePath("../SpawnerObjetos")
 contenedor_objetos = NodePath("../Objetos")
-etiqueta_hud = NodePath("../HUD/Texto")
+paredes = NodePath("../Paredes")
+spawns = [NodePath("../Spawn1"), NodePath("../Spawn2"), NodePath("../Spawn3"), NodePath("../Spawn4")]
 
 [node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="Partida" unique_id=619219609]
 replication_config = SubResource("SceneReplicationConfig_honmh")
@@ -89,53 +143,549 @@ spawn_path = NodePath("../Jugadores")
 spawn_path = NodePath("../Objetos")
 
 [node name="Menu" type="CanvasLayer" parent="." unique_id=145920018]
+layer = 3
 
-[node name="Panel" type="VBoxContainer" parent="Menu" unique_id=961789801]
-offset_left = 20.0
-offset_top = 20.0
-offset_right = 60.0
-offset_bottom = 60.0
+[node name="Pantalla" type="Control" parent="Menu" unique_id=961789801]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 
-[node name="Codigo" type="LineEdit" parent="Menu/Panel" unique_id=446101495]
-custom_minimum_size = Vector2(260, 0)
+[node name="Fondo" type="TextureRect" parent="Menu/Pantalla" unique_id=961789802]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = SubResource("GradientTexture2D_fondo")
+expand_mode = 1
+
+[node name="Centro" type="CenterContainer" parent="Menu/Pantalla" unique_id=961789803]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Columna" type="VBoxContainer" parent="Menu/Pantalla/Centro" unique_id=961789804]
 layout_mode = 2
-placeholder_text = "Código de sala (para unirse)"
+theme_override_constants/separation = 14
 
-[node name="Crear" type="Button" parent="Menu/Panel" unique_id=1741236224]
+[node name="Titulo" type="Label" parent="Menu/Pantalla/Centro/Columna" unique_id=961789805]
 layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.8, 0.1, 1)
+theme_override_colors/font_shadow_color = Color(0.55, 0.3, 0, 0.8)
+theme_override_colors/font_outline_color = Color(0.1, 0.06, 0, 1)
+theme_override_constants/shadow_offset_x = 0
+theme_override_constants/shadow_offset_y = 6
+theme_override_constants/outline_size = 14
+theme_override_font_sizes/font_size = 72
+text = "KING OF THE CELL"
+horizontal_alignment = 1
+
+[node name="Colores" type="HBoxContainer" parent="Menu/Pantalla/Centro/Columna" unique_id=961789806]
+layout_mode = 2
+theme_override_constants/separation = 18
+alignment = 1
+
+[node name="Rojo" type="Label" parent="Menu/Pantalla/Centro/Columna/Colores" unique_id=961789807]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0, 0, 1)
+theme_override_font_sizes/font_size = 26
+text = "●"
+
+[node name="Azul" type="Label" parent="Menu/Pantalla/Centro/Columna/Colores" unique_id=961789808]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.117647, 0.564706, 1, 1)
+theme_override_font_sizes/font_size = 26
+text = "●"
+
+[node name="Verde" type="Label" parent="Menu/Pantalla/Centro/Columna/Colores" unique_id=961789809]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.196078, 0.803922, 0.196078, 1)
+theme_override_font_sizes/font_size = 26
+text = "●"
+
+[node name="Amarillo" type="Label" parent="Menu/Pantalla/Centro/Columna/Colores" unique_id=961789810]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.843137, 0, 1)
+theme_override_font_sizes/font_size = 26
+text = "●"
+
+[node name="Lema" type="Label" parent="Menu/Pantalla/Centro/Columna" unique_id=961789811]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.72, 0.85, 1)
+theme_override_font_sizes/font_size = 18
+text = "Quedate con la celda. Empujá al resto."
+horizontal_alignment = 1
+
+[node name="Espacio" type="Control" parent="Menu/Pantalla/Centro/Columna" unique_id=961789812]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+
+[node name="Tarjeta" type="PanelContainer" parent="Menu/Pantalla/Centro/Columna" unique_id=961789813]
+custom_minimum_size = Vector2(420, 0)
+layout_mode = 2
+size_flags_horizontal = 4
+
+[node name="Contenido" type="VBoxContainer" parent="Menu/Pantalla/Centro/Columna/Tarjeta" unique_id=961789814]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Usuario" type="Label" parent="Menu/Pantalla/Centro/Columna/Tarjeta/Contenido" unique_id=961789815]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.35, 1)
+text = "Iniciando Steam..."
+horizontal_alignment = 1
+text_overrun_behavior = 3
+
+[node name="Crear" type="Button" parent="Menu/Pantalla/Centro/Columna/Tarjeta/Contenido" unique_id=1741236224]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_type_variation = &"BotonPrincipal"
 text = "Crear partida"
 
-[node name="Unirse" type="Button" parent="Menu/Panel" unique_id=1553607991]
+[node name="Separador" type="HBoxContainer" parent="Menu/Pantalla/Centro/Columna/Tarjeta/Contenido" unique_id=961789816]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Izq" type="HSeparator" parent="Menu/Pantalla/Centro/Columna/Tarjeta/Contenido/Separador" unique_id=961789817]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Texto" type="Label" parent="Menu/Pantalla/Centro/Columna/Tarjeta/Contenido/Separador" unique_id=961789818]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.57, 0.68, 1)
+theme_override_font_sizes/font_size = 15
+text = "o unite a una sala"
+
+[node name="Der" type="HSeparator" parent="Menu/Pantalla/Centro/Columna/Tarjeta/Contenido/Separador" unique_id=961789819]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Unirse" type="HBoxContainer" parent="Menu/Pantalla/Centro/Columna/Tarjeta/Contenido" unique_id=961789820]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Codigo" type="LineEdit" parent="Menu/Pantalla/Centro/Columna/Tarjeta/Contenido/Unirse" unique_id=446101495]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Código de sala"
+alignment = 1
+
+[node name="Boton" type="Button" parent="Menu/Pantalla/Centro/Columna/Tarjeta/Contenido/Unirse" unique_id=1553607991]
+custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
 text = "Unirse"
 
-[node name="Estado" type="Label" parent="Menu/Panel" unique_id=1553607992]
+[node name="Estado" type="Label" parent="Menu/Pantalla/Centro/Columna/Tarjeta/Contenido" unique_id=1553607992]
+custom_minimum_size = Vector2(360, 0)
 layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.72, 0.82, 1)
+theme_override_font_sizes/font_size = 15
 text = "Iniciando..."
+horizontal_alignment = 1
+autowrap_mode = 3
 
-[node name="Red" type="Node" parent="." unique_id=94712918 node_paths=PackedStringArray("spawner", "contenedor_jugadores", "partida", "spawns", "menu", "campo_codigo", "boton_crear", "boton_unirse", "etiqueta_estado")]
+[node name="Ayuda" type="Label" parent="Menu/Pantalla/Centro/Columna" unique_id=961789821]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.52, 0.62, 1)
+theme_override_font_sizes/font_size = 14
+text = "Mantené el click para cargar el salto y soltá para saltar  ·  Esc: pausa"
+horizontal_alignment = 1
+
+[node name="Red" type="Node" parent="." unique_id=94712918 node_paths=PackedStringArray("spawner", "contenedor_jugadores", "partida", "spawns", "menu", "campo_codigo", "boton_crear", "boton_unirse", "etiqueta_estado", "etiqueta_usuario")]
 script = ExtResource("2_ea8m7")
+usar_steam = false
 spawner = NodePath("../MultiplayerSpawner")
 contenedor_jugadores = NodePath("../Jugadores")
 partida = NodePath("../Partida")
 spawns = [NodePath("../Spawn1"), NodePath("../Spawn2"), NodePath("../Spawn3"), NodePath("../Spawn4")]
-menu = NodePath("../Menu/Panel")
-campo_codigo = NodePath("../Menu/Panel/Codigo")
-boton_crear = NodePath("../Menu/Panel/Crear")
-boton_unirse = NodePath("../Menu/Panel/Unirse")
-etiqueta_estado = NodePath("../Menu/Panel/Estado")
+menu = NodePath("../Menu/Pantalla")
+campo_codigo = NodePath("../Menu/Pantalla/Centro/Columna/Tarjeta/Contenido/Unirse/Codigo")
+boton_crear = NodePath("../Menu/Pantalla/Centro/Columna/Tarjeta/Contenido/Crear")
+boton_unirse = NodePath("../Menu/Pantalla/Centro/Columna/Tarjeta/Contenido/Unirse/Boton")
+etiqueta_estado = NodePath("../Menu/Pantalla/Centro/Columna/Tarjeta/Contenido/Estado")
+etiqueta_usuario = NodePath("../Menu/Pantalla/Centro/Columna/Tarjeta/Contenido/Usuario")
 
-[node name="HUD" type="CanvasLayer" parent="." unique_id=855042433]
+[node name="HUD" type="CanvasLayer" parent="." unique_id=855042433 node_paths=PackedStringArray("partida", "red", "arriba", "fila_jugadores", "reloj", "celda", "digitos_celda", "controles")]
+script = ExtResource("6_hud")
+partida = NodePath("../Partida")
+red = NodePath("../Red")
+arriba = NodePath("Arriba")
+fila_jugadores = NodePath("Arriba/Jugadores")
+reloj = NodePath("Arriba/Reloj")
+celda = NodePath("Arriba/Celda")
+digitos_celda = NodePath("Arriba/Celda/Digitos")
+controles = NodePath("Controles")
 
-[node name="Texto" type="Label" parent="HUD" unique_id=751846254]
-offset_left = 20.0
-offset_top = 20.0
-offset_right = 60.0
-offset_bottom = 43.0
+[node name="Arriba" type="VBoxContainer" parent="HUD" unique_id=751846254]
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 10.0
+offset_bottom = 190.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_constants/separation = 8
+
+[node name="Jugadores" type="HBoxContainer" parent="HUD/Arriba" unique_id=751846255]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 60
+alignment = 1
+
+[node name="Reloj" type="HBoxContainer" parent="HUD/Arriba" unique_id=751846256]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="Celda" type="VBoxContainer" parent="HUD/Arriba" unique_id=751846257]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 2
+
+[node name="Digitos" type="HBoxContainer" parent="HUD/Arriba/Celda" unique_id=751846258]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="Texto" type="Label" parent="HUD/Arriba/Celda" unique_id=751846259]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.8, 0.1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 13
+text = "CAMBIO DE CELDA"
+horizontal_alignment = 1
+
+[node name="Controles" type="PanelContainer" parent="HUD" unique_id=751846260]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = -150.0
+offset_right = 232.0
+offset_bottom = -12.0
+grow_vertical = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_controles")
+
+[node name="Filas" type="VBoxContainer" parent="HUD/Controles" unique_id=751846261]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="Titulo" type="Label" parent="HUD/Controles/Filas" unique_id=751846262]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.35, 0.9, 0.45, 1)
+theme_override_font_sizes/font_size = 13
+text = "CONTROLES"
+
+[node name="Cargar" type="HBoxContainer" parent="HUD/Controles/Filas" unique_id=751846263]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Tecla" type="Label" parent="HUD/Controles/Filas/Cargar" unique_id=751846264]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxFlat_tecla")
+text = "Click izq."
+horizontal_alignment = 1
+
+[node name="Texto" type="Label" parent="HUD/Controles/Filas/Cargar" unique_id=751846265]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "mantener: cargar"
+
+[node name="Apuntar" type="HBoxContainer" parent="HUD/Controles/Filas" unique_id=751846266]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Tecla" type="Label" parent="HUD/Controles/Filas/Apuntar" unique_id=751846267]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxFlat_tecla")
+text = "Mouse"
+horizontal_alignment = 1
+
+[node name="Texto" type="Label" parent="HUD/Controles/Filas/Apuntar" unique_id=751846268]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "apuntar"
+
+[node name="Soltar" type="HBoxContainer" parent="HUD/Controles/Filas" unique_id=751846269]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Tecla" type="Label" parent="HUD/Controles/Filas/Soltar" unique_id=751846270]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxFlat_tecla")
+text = "Soltar"
+horizontal_alignment = 1
+
+[node name="Texto" type="Label" parent="HUD/Controles/Filas/Soltar" unique_id=751846271]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "impulso"
+
+[node name="Pausa" type="HBoxContainer" parent="HUD/Controles/Filas" unique_id=751846272]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Tecla" type="Label" parent="HUD/Controles/Filas/Pausa" unique_id=751846273]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxFlat_tecla")
+text = "Esc"
+horizontal_alignment = 1
+
+[node name="Texto" type="Label" parent="HUD/Controles/Filas/Pausa" unique_id=751846274]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "pausa / salir"
 
 [node name="Conexion" type="Label" parent="HUD" unique_id=1377955709 node_paths=PackedStringArray("red")]
-offset_left = 900.0
-offset_right = 940.0
-offset_bottom = 23.0
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -320.0
+offset_top = -80.0
+offset_right = -16.0
+offset_bottom = -12.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.6, 0.62, 0.72, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.8)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 14
+horizontal_alignment = 2
+vertical_alignment = 2
 script = ExtResource("4_honmh")
 red = NodePath("../../Red")
+
+[node name="Interfaz" type="CanvasLayer" parent="." unique_id=1720450001 node_paths=PackedStringArray("partida", "red", "panel_lobby", "etiqueta_sala", "lista_lobby", "boton_iniciar", "etiqueta_lobby", "aviso", "panel_resultados", "etiqueta_ganador", "lista_resultados", "boton_volver", "panel_pausa", "etiqueta_pausa", "boton_seguir", "boton_salir", "panel_expulsar", "lista_expulsar", "lista_avisos")]
+layer = 2
+script = ExtResource("5_intfz")
+partida = NodePath("../Partida")
+red = NodePath("../Red")
+panel_lobby = NodePath("Lobby")
+etiqueta_sala = NodePath("Lobby/Contenido/Sala")
+lista_lobby = NodePath("Lobby/Contenido/Jugadores")
+boton_iniciar = NodePath("Lobby/Contenido/Iniciar")
+etiqueta_lobby = NodePath("Lobby/Contenido/Estado")
+aviso = NodePath("Aviso")
+panel_resultados = NodePath("Resultados")
+etiqueta_ganador = NodePath("Resultados/Contenido/Ganador")
+lista_resultados = NodePath("Resultados/Contenido/Ranking")
+boton_volver = NodePath("Resultados/Contenido/Volver")
+panel_pausa = NodePath("Pausa")
+etiqueta_pausa = NodePath("Pausa/Contenido/Aviso")
+boton_seguir = NodePath("Pausa/Contenido/Seguir")
+boton_salir = NodePath("Pausa/Contenido/Salir")
+panel_expulsar = NodePath("Expulsar")
+lista_expulsar = NodePath("Expulsar/Contenido/Lista")
+lista_avisos = NodePath("Avisos")
+
+[node name="Aviso" type="Label" parent="Interfaz" unique_id=1720450002]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 12
+theme_override_font_sizes/font_size = 120
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Lobby" type="PanelContainer" parent="Interfaz" unique_id=1720450003]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -220.0
+offset_top = -170.0
+offset_right = 220.0
+offset_bottom = 170.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Contenido" type="VBoxContainer" parent="Interfaz/Lobby" unique_id=1720450004]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Titulo" type="Label" parent="Interfaz/Lobby/Contenido" unique_id=1720450005]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.8, 0.1, 1)
+theme_override_font_sizes/font_size = 32
+text = "Lobby"
+horizontal_alignment = 1
+
+[node name="Sala" type="Label" parent="Interfaz/Lobby/Contenido" unique_id=1720450006]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Sala: -----"
+horizontal_alignment = 1
+
+[node name="Jugadores" type="VBoxContainer" parent="Interfaz/Lobby/Contenido" unique_id=1720450007]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Estado" type="Label" parent="Interfaz/Lobby/Contenido" unique_id=1720450008]
+layout_mode = 2
+text = "Esperando jugadores..."
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="Iniciar" type="Button" parent="Interfaz/Lobby/Contenido" unique_id=1720450009]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_type_variation = &"BotonPrincipal"
+text = "Iniciar"
+
+[node name="Resultados" type="PanelContainer" parent="Interfaz" unique_id=1720450010]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -190.0
+offset_right = 300.0
+offset_bottom = 190.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Contenido" type="VBoxContainer" parent="Interfaz/Resultados" unique_id=1720450011]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Titulo" type="Label" parent="Interfaz/Resultados/Contenido" unique_id=1720450012]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.62, 0.72, 1)
+theme_override_font_sizes/font_size = 18
+text = "FIN DE LA PARTIDA"
+horizontal_alignment = 1
+
+[node name="Ganador" type="Label" parent="Interfaz/Resultados/Contenido" unique_id=1720450013]
+layout_mode = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 36
+text = "¡Ganó ...!"
+horizontal_alignment = 1
+
+[node name="Ranking" type="GridContainer" parent="Interfaz/Resultados/Contenido" unique_id=1720450014]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/h_separation = 22
+theme_override_constants/v_separation = 8
+columns = 4
+
+[node name="Volver" type="Button" parent="Interfaz/Resultados/Contenido" unique_id=1720450015]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_type_variation = &"BotonPrincipal"
+text = "Volver al menú"
+
+[node name="Pausa" type="PanelContainer" parent="Interfaz" unique_id=1720450016]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -170.0
+offset_top = -100.0
+offset_right = 170.0
+offset_bottom = 100.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Contenido" type="VBoxContainer" parent="Interfaz/Pausa" unique_id=1720450017]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Titulo" type="Label" parent="Interfaz/Pausa/Contenido" unique_id=1720450018]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "Pausa"
+horizontal_alignment = 1
+
+[node name="Aviso" type="Label" parent="Interfaz/Pausa/Contenido" unique_id=1720450019]
+layout_mode = 2
+text = "Si salís, la partida sigue para los demás."
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="Seguir" type="Button" parent="Interfaz/Pausa/Contenido" unique_id=1720450020]
+layout_mode = 2
+text = "Volver a la partida"
+
+[node name="Salir" type="Button" parent="Interfaz/Pausa/Contenido" unique_id=1720450021]
+layout_mode = 2
+text = "Salir al menú"
+
+[node name="Avisos" type="VBoxContainer" parent="Interfaz" unique_id=1720450030]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -260.0
+offset_top = -170.0
+offset_right = 260.0
+offset_bottom = -60.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+alignment = 2
+
+[node name="Expulsar" type="PanelContainer" parent="Interfaz" unique_id=1720450031]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -240.0
+offset_top = -120.0
+offset_right = 240.0
+offset_bottom = 120.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Contenido" type="VBoxContainer" parent="Interfaz/Expulsar" unique_id=1720450032]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Titulo" type="Label" parent="Interfaz/Expulsar/Contenido" unique_id=1720450033]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.8, 0.1, 1)
+theme_override_font_sizes/font_size = 24
+text = "Jugadores"
+horizontal_alignment = 1
+
+[node name="Ayuda" type="Label" parent="Interfaz/Expulsar/Contenido" unique_id=1720450034]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.62, 0.72, 1)
+theme_override_font_sizes/font_size = 14
+text = "El expulsado no puede volver a esta sala.  ·  Tab para cerrar"
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="Lista" type="VBoxContainer" parent="Interfaz/Expulsar/Contenido" unique_id=1720450035]
+layout_mode = 2
+theme_override_constants/separation = 8

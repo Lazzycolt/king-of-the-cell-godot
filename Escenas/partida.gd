@@ -2,6 +2,22 @@ class_name Partida
 extends Node2D
 ## Reglas de la partida. Solo el HOST las calcula; los clientes reciben el resultado
 ## por el MultiplayerSynchronizer y lo dibujan.
+## La partida pasa por 4 estados: LOBBY → CUENTA_ATRAS → JUGANDO → FINALIZADO.
+
+## Avisa cuando cambia el estado (en todas las PCs: en los clientes, cuando llega por red).
+signal estado_cambiado(nuevo: Estado)
+## Avisa que llegó el ranking final (en todas las PCs, por RPC confiable).
+signal resultados_listos(filas: Array)
+
+enum Estado { LOBBY, CUENTA_ATRAS, JUGANDO, FINALIZADO }
+
+@export_group("Ronda")
+## Duración de la ronda. Con el tiempo en 0 se termina la partida.
+@export_range(30, 900, 10, "suffix:s") var duracion_ronda := 300.0
+## Segundos de cuenta atrás antes de empezar (los jugadores esperan en su esquina).
+@export_range(1, 10, 1, "suffix:s") var duracion_cuenta_atras := 3.0
+## Jugadores necesarios para que el host pueda iniciar.
+@export_range(1, 4, 1) var minimo_jugadores := 2
 
 @export_group("Reglas")
 ## Segundos que la celda se queda en un lugar antes de saltar a otro.
@@ -13,7 +29,19 @@ extends Node2D
 ## Distancia mínima (en celdas) entre la celda vieja y la nueva.
 @export_range(1, 4, 1) var distancia_minima := 2
 
+@export_group("Caídas")
+## Activado: la arena tiene paredes y nadie se cae (como antes).[br]Desactivado: no hay paredes y el que sale de la grilla se cae.
+@export var con_paredes := false
+## Segundos que el que se cayó queda afuera antes de volver a su esquina.
+@export_range(1, 15, 0.5, "suffix:s") var tiempo_caido := 5.0
+## Segundos de invulnerabilidad al volver (nadie lo puede golpear).
+@export_range(0, 5, 0.5, "suffix:s") var invulnerable_al_volver := 2.0
+
 @export_group("Golpes")
+## Activado: el que sale volando por un golpe empuja a los que choca en el camino.
+@export var empuje_en_cadena := true
+## Qué parte de su velocidad le pasa el que va volando al siguiente (menos de 1 = la cadena se apaga sola).
+@export_range(0.1, 1.0, 0.05) var fuerza_cadena := 0.7
 ## Velocidad mínima del que choca para que cuente como golpe.
 @export_range(0, 1000, 10, "suffix:px/s") var velocidad_minima_golpe := 300.0
 ## Qué parte de la velocidad del que choca se le pasa al golpeado (1 = toda).
@@ -46,52 +74,241 @@ extends Node2D
 @export var spawner_objetos: MultiplayerSpawner
 ## Nodo donde aparecen los objetos. Tiene que ser el "Spawn Path" de spawner_objetos.
 @export var contenedor_objetos: Node2D
-## Texto donde se muestran los puntos y el tiempo.
-@export var etiqueta_hud: Label
+## Las paredes de la arena. Se apagan si 'con_paredes' está desactivado.
+@export var paredes: StaticBody2D
+## Puntos de aparición (los mismos que usa red.gd). Al empezar, cada uno vuelve al suyo.
+@export var spawns: Array[Marker2D]
 
 # --- Estado sincronizado (lo escribe el host, lo leen todos) ---
-var celda_activa := -1           # índice = fila * COLUMNAS + columna; -1 = partida sin empezar
+var celda_activa := -1           # índice = fila * COLUMNAS + columna; -1 = sin celda (no se está jugando)
 var tiempo_para_cambio := 0.0
 var puntos := {}                 # { id_jugador: puntos }
 var jugadores := {}              # { id_jugador: indice }  el indice (0 a 3) decide color y nombre
+var nombres := {}                # { id_jugador: nombre de Steam }  (vacío en ENet: se usa el del color)
+var tiempo_en_celda := {}        # { id_jugador: segundos } dentro de la celda (aunque esté compartida). Desempate.
+var tiempo_restante := 0.0       # segundos que le quedan a la ronda
+var cuenta_atras := 0.0          # segundos que le quedan a la cuenta atrás
+var estado := Estado.LOBBY:
+	set(nuevo):
+		if nuevo == estado:
+			return   # el synchronizer lo escribe todo el tiempo: solo avisamos si cambió de verdad
+		estado = nuevo
+		estado_cambiado.emit(nuevo)
 
-## Nombres que se muestran en el HUD, en el mismo orden que los colores del jugador.
+## Nombres que se muestran en el HUD, en el mismo orden que los colores.
 const NOMBRES := ["Rojo", "Azul", "Verde", "Amarillo"]
+## Color de cada jugador según su lugar (0 a 3). Lo usan jugador.gd y la interfaz.
+const COLORES: Array[Color] = [Color.RED, Color.DODGER_BLUE, Color.LIME_GREEN, Color.GOLD]
 
-var en_curso := false            # solo se usa en el host
+## Ranking final que mandó el host (vacío mientras no terminó la partida).
+## Cada fila: { id, indice, puntos, tiempo, salio }
+var resultado: Array = []
+## Lo pone la interfaz cuando el menú de pausa está abierto: el jugador local no carga el salto.
+var input_bloqueado := false
+
+var soy_host := false            # lo pone red.gd. Solo el host corre las reglas.
 var tiempo_para_objeto := 0.0    # solo se usa en el host
+var _reaparicion := {}           # solo host: { id_jugador: segundos que le faltan para volver }
+var _gracia := {}                # solo host: { id_jugador: segundos } recién volvió, todavía no se puede caer
+## Margen después de volver: por la red pueden llegar datos viejos (de cuando estaba afuera).
+const GRACIA_AL_VOLVER := 0.5
 var contador_objetos := 0        # solo se usa en el host (para darle un nombre único a cada objeto)
 
 func _ready() -> void:
 	add_to_group("partida")   # así los jugadores la encuentran para reportar golpes
+	# Paredes: se prenden o apagan igual en todas las PCs (la escena es la misma en todas)
+	for forma in paredes.get_children():
+		forma.disabled = not con_paredes
+	if get_parent() is Arena:
+		get_parent().con_paredes = con_paredes   # para dibujar el borde como "peligro"
 	# Le decimos al spawner CÓMO armar un objeto. Esta función corre en TODAS las PCs.
 	spawner_objetos.spawn_function = _crear_objeto
 
-## Lo llama red.gd en el host al crear la partida.
-func iniciar() -> void:
-	en_curso = true
+
+## Lo llama red.gd en el host al crear la sala: queda en el lobby esperando jugadores.
+func abrir_lobby() -> void:
+	reiniciar()
+	soy_host = true
+
+
+## Vuelve todo a cero. Lo llama red.gd al volver al menú (en el host y en los clientes).
+func reiniciar() -> void:
+	soy_host = false
+	estado = Estado.LOBBY
+	celda_activa = -1
+	tiempo_para_cambio = 0.0
+	tiempo_restante = 0.0
+	cuenta_atras = 0.0
+	puntos = {}
+	tiempo_en_celda = {}
+	jugadores = {}
+	nombres = {}
+	resultado = []
+	input_bloqueado = false
+	_reaparicion = {}
+	_gracia = {}
+	_borrar_objetos()
+
+
+## ¿Los jugadores pueden moverse y cargar el salto? En la cuenta atrás y al final, no.
+func se_puede_mover() -> bool:
+	return estado == Estado.LOBBY or estado == Estado.JUGANDO
+
+
+func _physics_process(delta: float) -> void:
+	if soy_host:
+		_actualizar_host(delta)     # solo pasa en el host
+	queue_redraw()                  # la celda se dibuja en todas las PCs (el HUD está en hud.gd)
+
+
+# ---------- ESTADOS (solo host) ----------
+
+## El host tocó "Iniciar". Devuelve false si todavía no se puede.
+func empezar() -> bool:
+	if not soy_host or estado != Estado.LOBBY:
+		return false
+	var en_sala := jugadores_conectados()
+	if en_sala.size() < minimo_jugadores:
+		return false
+	puntos = {}
+	tiempo_en_celda = {}
+	celda_activa = -1
+	_reaparicion = {}   # ir_a también levanta a los que estaban caídos
+	_borrar_objetos()
+	# Cada uno vuelve a su esquina. La posición la controla el dueño, así que se lo pedimos por RPC.
+	for jugador: Jugador in en_sala:
+		jugador.ir_a.rpc(spawns[jugador.indice].global_position)
+	cuenta_atras = duracion_cuenta_atras
+	estado = Estado.CUENTA_ATRAS
+	return true
+
+
+func _actualizar_host(delta: float) -> void:
+	if estado == Estado.LOBBY or estado == Estado.JUGANDO:
+		_actualizar_caidas(delta)   # en el lobby también: sirve para practicar
+	match estado:
+		Estado.CUENTA_ATRAS:
+			cuenta_atras = maxf(cuenta_atras - delta, 0.0)
+			if cuenta_atras <= 0.0:
+				_arrancar_ronda()
+		Estado.JUGANDO:
+			tiempo_restante = maxf(tiempo_restante - delta, 0.0)
+			_actualizar_reglas(delta)
+			if tiempo_restante <= 0.0:
+				_finalizar()
+
+
+func _arrancar_ronda() -> void:
+	tiempo_restante = duracion_ronda
 	tiempo_para_objeto = intervalo_objetos
 	_cambiar_celda()
+	estado = Estado.JUGANDO
 
 
-## Vuelve todo a cero. Lo llama red.gd cuando se corta la partida.
-func reiniciar() -> void:
-	en_curso = false
-	celda_activa = -1
-	puntos = {}
-	jugadores = {}
+## Se acabó (por tiempo o porque quedó uno solo). Arma el ranking y se lo manda a todos.
+func _finalizar() -> void:
+	estado = Estado.FINALIZADO
+	var filas := []
+	for id in jugadores:
+		var sigue := _esta_conectado(id)
+		var pts := roundi(puntos.get(id, 0.0))
+		if not sigue and pts == 0:
+			continue   # se fue sin puntos: no aparece
+		filas.append({
+			"id": id,
+			"indice": jugadores[id],
+			"nombre": nombre_jugador(id),
+			"puntos": pts,
+			"tiempo": snappedf(tiempo_en_celda.get(id, 0.0), 0.1),
+			"salio": not sigue,
+		})
+	filas.sort_custom(_va_antes)
+	mostrar_resultados.rpc(filas)
+
+
+## Orden del ranking: primero los que siguen conectados, después más puntos y,
+## si empatan en puntos, más tiempo dentro de la celda (desempate del GDD).
+static func _va_antes(a: Dictionary, b: Dictionary) -> bool:
+	if a["salio"] != b["salio"]:
+		return not a["salio"]
+	if a["puntos"] != b["puntos"]:
+		return a["puntos"] > b["puntos"]
+	return a["tiempo"] > b["tiempo"]
+
+
+## El host la llama en TODAS las PCs con el ranking final. Así todos ven exactamente lo mismo.
+@rpc("authority", "call_local", "reliable")
+func mostrar_resultados(filas: Array) -> void:
+	resultado = filas
+	resultados_listos.emit(filas)
+
+
+## Lo llama red.gd en el host cuando se va un jugador (su nodo ya está marcado para borrarse).
+func jugador_salio(id: int) -> void:
+	if not soy_host:
+		return
+	match estado:
+		Estado.LOBBY:
+			jugadores.erase(id)   # en el lobby no tiene puntos: lo sacamos de la lista
+			nombres.erase(id)
+		Estado.CUENTA_ATRAS:
+			jugadores.erase(id)
+			nombres.erase(id)
+			if jugadores_conectados().size() < minimo_jugadores:
+				estado = Estado.LOBBY   # no da para empezar: volvemos a esperar
+		Estado.JUGANDO:
+			# Sus puntos quedan en la tabla. Si queda uno solo, se termina.
+			if jugadores_conectados().size() < 2:
+				_finalizar()
+
+
+# ---------- CAÍDAS (solo host) ----------
+
+func _actualizar_caidas(delta: float) -> void:
+	if con_paredes:
+		return
+	for id in _gracia.keys():
+		_gracia[id] -= delta
+		if _gracia[id] <= 0.0:
+			_gracia.erase(id)
+	for jugador: Jugador in jugadores_conectados():
+		var id := jugador.name.to_int()
+		if _gracia.has(id):
+			continue
+		if jugador.caido:
+			# Esperando para volver
+			_reaparicion[id] = _reaparicion.get(id, tiempo_caido) - delta
+			if _reaparicion[id] <= 0.0:
+				_reaparicion.erase(id)
+				_gracia[id] = GRACIA_AL_VOLVER
+				jugador.reaparecer.rpc(spawns[jugador.indice].global_position, invulnerable_al_volver)
+		elif celda_en_posicion(jugador.posicion_red) == -1:
+			# Su centro salió de la grilla: se cayó. Usamos posicion_red (el dato real del dueño).
+			_reaparicion[id] = tiempo_caido
+			jugador.caer.rpc()
+			print("Se cayó el jugador ", id)
+
+
+## Los jugadores que están en la arena (sin contar los que se están borrando).
+func jugadores_conectados() -> Array:
+	var lista := []
+	for jugador in contenedor_jugadores.get_children():
+		if not jugador.is_queued_for_deletion():
+			lista.append(jugador)
+	return lista
+
+
+func _esta_conectado(id: int) -> bool:
+	var jugador := contenedor_jugadores.get_node_or_null(str(id))
+	return jugador != null and not jugador.is_queued_for_deletion()
+
+
+func _borrar_objetos() -> void:
 	for objeto in contenedor_objetos.get_children():
 		objeto.queue_free()
 
 
-func _physics_process(delta: float) -> void:
-	if en_curso:
-		_actualizar_reglas(delta)   # solo pasa en el host
-	queue_redraw()
-	_actualizar_hud()               # pasa en todas las PCs
-
-
-# ---------- REGLAS (solo host) ----------
+# ---------- REGLAS (solo host, mientras se juega) ----------
 
 func _actualizar_reglas(delta: float) -> void:
 	tiempo_para_cambio -= delta
@@ -100,9 +317,15 @@ func _actualizar_reglas(delta: float) -> void:
 	_actualizar_objetos(delta)
 
 	var adentro := []
-	for jugador in contenedor_jugadores.get_children():
-		if celda_en_posicion(jugador.position) == celda_activa:
+	for jugador: Jugador in jugadores_conectados():
+		if not jugador.caido and celda_en_posicion(jugador.position) == celda_activa:
 			adentro.append(jugador)
+	# El tiempo en la celda cuenta siempre, aunque esté compartida: sirve para desempatar.
+	# (Los puntos solos no alcanzan: con 'solo_suma_si_esta_solo' son tiempo-solo × puntos/s,
+	# así que si dos empatan en puntos también empatan en tiempo-solo.)
+	for jugador in adentro:
+		var id: int = jugador.name.to_int()
+		tiempo_en_celda[id] = tiempo_en_celda.get(id, 0.0) + delta
 	if solo_suma_si_esta_solo and adentro.size() > 1:
 		return
 	for jugador in adentro:
@@ -112,16 +335,21 @@ func _actualizar_reglas(delta: float) -> void:
 ## Un jugador avisa "choqué a otro". Corre SOLO en el servidor, que valida y decide.
 @rpc("any_peer", "call_local", "reliable")
 func reportar_golpe(id_victima: int, velocidad: Vector2) -> void:
-	if not multiplayer.is_server():
-		return
+	if not soy_host or estado != Estado.JUGANDO:
+		return   # en el lobby o con la partida terminada no hay golpes
 	var id_atacante := multiplayer.get_remote_sender_id()
 	var atacante := contenedor_jugadores.get_node_or_null(str(id_atacante)) as Jugador
 	var victima := contenedor_jugadores.get_node_or_null(str(id_victima)) as Jugador
 	if atacante == null or victima == null or atacante == victima:
 		return
+	if atacante.caido or victima.caido:
+		return   # los que se están cayendo ya no cuentan
 
 	# --- Validaciones: el servidor no se cree todo lo que le dicen ---
-	if atacante.aturdido > 0.0:
+	# Un aturdido no puede saltar, así que si viene rápido es porque lo golpearon y va volando:
+	# con 'empuje_en_cadena' le pasa parte de esa velocidad al que choca.
+	var en_cadena := atacante.aturdido > 0.0
+	if en_cadena and not empuje_en_cadena:
 		return   # un aturdido no puede pegar
 	if victima.inmune > 0.0:
 		return   # ya está aturdido o recién salió
@@ -134,11 +362,19 @@ func reportar_golpe(id_victima: int, velocidad: Vector2) -> void:
 	if atacante.posicion_red.distance_to(victima.posicion_red) > distancia_maxima_golpe:
 		print("Golpe rechazado: están demasiado lejos (", id_atacante, " → ", id_victima, ")")
 		return
-	# Nadie puede ir más rápido que el salto máximo (un poco de margen)
-	var rapidez := minf(velocidad.length(), atacante.fuerza_maxima * 1.1)
+	# Nadie puede ir más rápido que el salto máximo (un poco de margen).
+	# El que va volando puede ir más rápido (un topetazo lo lanza a fuerza_topetazo × salto máximo).
+	var tope := atacante.fuerza_maxima * (maxf(fuerza_topetazo, 1.0) if en_cadena else 1.0) * 1.1
+	var rapidez := minf(velocidad.length(), tope)
 
 	# --- Golpe válido: se lo aplicamos a la víctima en todas las PCs ---
 	var direccion := (victima.posicion_red - atacante.posicion_red).normalized()
+	if en_cadena:
+		# EMPUJE EN CADENA: pasa una parte de su velocidad. Cada eslabón pierde fuerza y la cadena se apaga.
+		# La inmunidad del golpeado evita que dos se golpeen de ida y vuelta sin parar.
+		victima.recibir_golpe.rpc(direccion * rapidez * fuerza_cadena, duracion_aturdido, duracion_inmunidad, 0.0)
+		print("Golpe en cadena: ", id_atacante, " → ", id_victima)
+		return
 	if atacante.topetazo > 0.0:
 		# TOPETAZO: sale disparado a full aunque el golpe no haya sido tan fuerte, y queda
 		# deslizándose como bola de billar. Aturdido todo ese tiempo, así no puede frenarse saltando.
@@ -166,7 +402,9 @@ func _actualizar_objetos(delta: float) -> void:
 	for objeto: Objeto in contenedor_objetos.get_children():
 		if objeto.is_queued_for_deletion():
 			continue
-		for jugador: Jugador in contenedor_jugadores.get_children():
+		for jugador: Jugador in jugadores_conectados():
+			if jugador.caido:
+				continue
 			# posicion_red = el último dato real del jugador (ver comentario en reportar_golpe)
 			if jugador.posicion_red.distance_to(objeto.position) < Jugador.RADIO + Objeto.RADIO:
 				_aplicar_objeto(objeto.tipo, jugador)
@@ -201,7 +439,7 @@ func _lugar_para_objeto() -> Vector2:
 			continue
 		var centro := rect_de_celda(i).get_center()
 		var libre := true
-		for jugador: Jugador in contenedor_jugadores.get_children():
+		for jugador: Jugador in jugadores_conectados():
 			if jugador.posicion_red.distance_to(centro) < Arena.TAM_CELDA:
 				libre = false
 		for objeto: Node2D in contenedor_objetos.get_children():
@@ -258,28 +496,41 @@ func _distancia(a: int, b: int) -> int:
 	return maxi(absi(a % Arena.COLUMNAS - b % Arena.COLUMNAS), absi(a / Arena.COLUMNAS - b / Arena.COLUMNAS))
 
 
-# ---------- DIBUJO Y HUD (todas las PCs) ----------
+static func nombre_de(indice: int) -> String:
+	return NOMBRES[indice % NOMBRES.size()]
+
+
+## El nombre de Steam del jugador; si no hay (modo ENet), el de su color.
+func nombre_jugador(id: int) -> String:
+	var nombre: String = nombres.get(id, "")
+	if nombre == "":
+		return nombre_de(jugadores.get(id, 0))
+	return nombre
+
+
+static func color_de(indice: int) -> Color:
+	return COLORES[indice % COLORES.size()]
+
+
+# ---------- DIBUJO (todas las PCs) ----------
 
 func _draw() -> void:
-	if celda_activa == -1:
+	if celda_activa == -1 or estado != Estado.JUGANDO:
 		return
-	var color := Color(1.0, 0.8, 0.1, 0.55)   # dorado
+	var color := Color(1.0, 0.8, 0.1)   # dorado
+	# "Respira" suave para llamar la atención
+	var pulso := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 250.0)
+	var relleno := 0.35 + 0.15 * pulso
 	# Los últimos 5 segundos parpadea para avisar que se va a mover
 	if tiempo_para_cambio < 5.0 and int(tiempo_para_cambio * 4) % 2 == 0:
-		color.a = 0.15
-	draw_rect(rect_de_celda(celda_activa).grow(-4), color)
-
-
-func _actualizar_hud() -> void:
-	if celda_activa == -1:
-		etiqueta_hud.text = ""
-		return
-	var texto := "Cambio de celda en %d s\n" % ceili(tiempo_para_cambio)
-	for id in jugadores:
-		var nombre: String = NOMBRES[jugadores[id] % NOMBRES.size()]
-		if contenedor_jugadores.get_node_or_null(str(id)) == null:
-			if roundi(puntos.get(id, 0.0)) == 0:
-				continue           # se fue sin puntos: no lo mostramos
-			nombre += " (salió)"   # sus puntos quedan en la tabla, como dice el GDD
-		texto += "%s: %d\n" % [nombre, roundi(puntos.get(id, 0.0))]
-	etiqueta_hud.text = texto
+		relleno = 0.1
+	var rect := rect_de_celda(celda_activa)
+	draw_rect(rect.grow(-4), Color(color, relleno))
+	draw_rect(rect.grow(-4), Color(color, 0.9), false, 4.0)
+	draw_rect(rect.grow(-4 + 4 * pulso), Color(color, 0.25 * (1.0 - pulso)), false, 3.0)   # onda hacia afuera
+	# Rayado en diagonal, como en el boceto de la "celda objetivo"
+	var interior := rect.grow(-10)
+	for i in range(1, 8):
+		var d := interior.size.x * i / 8.0
+		draw_line(interior.position + Vector2(d, 0), interior.position + Vector2(0, d), Color(color, 0.35), 2.0)
+		draw_line(interior.end - Vector2(d, 0), interior.end - Vector2(0, d), Color(color, 0.35), 2.0)

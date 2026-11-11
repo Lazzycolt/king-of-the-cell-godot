@@ -38,27 +38,72 @@ const LETRAS := "ABCDEFGHJKLMNPQRSTUVWXYZ"   # sin I ni O para no confundir con 
 @export var boton_unirse: Button
 ## Texto del menú donde se muestra qué está pasando (conectando, errores...).
 @export var etiqueta_estado: Label
+## Texto del menú con el nombre de Steam del jugador.
+@export var etiqueta_usuario: Label
+
+## Largo máximo del nombre que se muestra (los de Steam pueden ser muy largos).
+const LARGO_MAXIMO_NOMBRE := 16
+## Tamaño máximo de los datos de conexión: algo más grande no es nuestro (alguien manda basura).
+const MAXIMO_BYTES_DATOS := 1024
+
+# Motivos de rechazo. El cliente los muestra tal cual en el menú (clase 14, "las reglas de entrada").
+const MOTIVO_DATOS := "No se pudieron leer tus datos de conexión."
+const MOTIVO_VERSION := "Tu versión del juego (%s) no es la misma que la del host (%s). Actualizá el juego."
+const MOTIVO_EXPULSADO := "El host te expulsó de la partida."
+const MOTIVO_DUPLICADO := "Ya hay alguien conectado con tu cuenta."
+const MOTIVO_EMPEZADA := "La partida ya empezó. Esperá a que termine."
+const MOTIVO_LLENA := "La sala está llena."
+
+## Avisa cosas para mostrar a todos ("X entró", "X se fue", "X fue expulsado"). Lo usa la interfaz.
+signal aviso(texto: String)
+
+@export_group("Pruebas")
+## Activado: este juego manda una versión falsa al conectarse. Sirve para ver el rechazo por versión
+## sin armar otro build (como 'probarVersionVieja' de la clase 14).
+@export var probar_version_vieja := false
+
+## Versión del juego: Proyecto → Configuración del Proyecto → Application → Config → Version.
+## Si un compañero tiene un build con otra versión, el host no lo deja entrar.
+var version_juego: String = ProjectSettings.get_setting("application/config/version", "0")
 
 ## Código de la sala actual (vacío si no hay). Lo muestra el indicador de conexión.
 var codigo_sala := ""
 var _soy_host := false
 var _id_sala := 0   # id de la sala de Steam (un número largo que da Steam)
 
+## Identifica a la PERSONA (no a la conexión): con Steam es su SteamID, que no cambia aunque
+## se reconecte. Con ENet no hay cuenta, así que es un número al azar por cada vez que se abre el juego.
+var _mi_id_persona := ""
+
+# --- Solo en el host ---
+var _sesion := {}        # { id_peer: { "id_persona", "nombre", "version" } } los que pasaron la puerta
+var _expulsados := {}    # { id_persona: true } no vuelven a entrar a esta sala
+var _expulsando := {}    # { id_peer: true } para no avisar "se fue" de alguien que acabamos de echar
+var _rechazados := {}    # { id_peer: true } rechazados en la puerta (para no confundirlos con un timeout)
+
 
 func _ready() -> void:
 	# Le decimos al spawner CÓMO armar un jugador. Esta función corre en TODAS las PCs.
 	spawner.spawn_function = _crear_jugador
+	partida.estado_cambiado.connect(_on_estado_cambiado)
 	boton_crear.pressed.connect(crear_partida)
 	boton_unirse.pressed.connect(unirse)
 	multiplayer.peer_connected.connect(_on_peer_conectado)
 	multiplayer.peer_disconnected.connect(_on_peer_desconectado)
 	multiplayer.connection_failed.connect(_on_conexion_fallida)
 	multiplayer.server_disconnected.connect(_on_host_desconectado)
+	# La puerta de entrada (≈ aprobación de conexión de NGO): mientras esto esté puesto,
+	# nadie "entra" (peer_connected) hasta que el host lo aprueba con complete_auth().
+	multiplayer.auth_callback = _on_datos_de_autenticacion
+	multiplayer.peer_authenticating.connect(_on_autenticando)
+	multiplayer.peer_authentication_failed.connect(_on_autenticacion_fallida)
+	_mi_id_persona = "enet-%d" % randi()
 	if usar_steam:
 		_iniciar_steam()
 	else:
-		campo_codigo.placeholder_text = "IP del host (vacío = esta PC)"
-		_estado("Modo ENet (sin Steam): creá una partida o escribí una IP.")
+		campo_codigo.placeholder_text = "IP (vacío = esta PC)"
+		etiqueta_usuario.text = "Modo ENet (sin Steam)"
+		_estado("Creá una partida o escribí una IP.")
 
 
 # ---------- STEAM ----------
@@ -67,13 +112,174 @@ func _iniciar_steam() -> void:
 	# true = GodotSteam procesa solo los avisos de Steam (si no, habría que llamar Steam.run_callbacks() cada frame)
 	var resultado: Dictionary = Steam.steamInitEx(APP_ID_PRUEBA, true)
 	if resultado["status"] != Steam.STEAM_API_INIT_RESULT_OK:
+		etiqueta_usuario.text = "Steam no disponible"
 		_estado("No se pudo iniciar Steam: %s\n¿Está Steam abierto y con la sesión iniciada?" % resultado["verbal"])
 		_habilitar_botones(false)
 		return
 	Steam.lobby_created.connect(_on_sala_creada)
 	Steam.lobby_joined.connect(_on_sala_unida)
 	Steam.lobby_match_list.connect(_on_lista_de_salas)
-	_estado("Steam listo (%s). Creá una partida o escribí un código." % Steam.getPersonaName())
+	_mi_id_persona = str(Steam.getSteamID())
+	etiqueta_usuario.text = "Jugando como %s" % _mi_nombre()
+	_estado("Creá una partida o escribí un código para unirte.")
+
+
+## Nuestro nombre de Steam (vacío en modo ENet: ahí se usa el nombre del color).
+func _mi_nombre() -> String:
+	if not usar_steam:
+		return ""
+	return _limpiar_nombre(Steam.getPersonaName())
+
+
+static func _limpiar_nombre(nombre: String) -> String:
+	nombre = nombre.strip_edges()
+	if nombre.length() > LARGO_MAXIMO_NOMBRE:
+		nombre = nombre.left(LARGO_MAXIMO_NOMBRE - 1) + "…"
+	return nombre
+
+
+# ---------- LA PUERTA DE ENTRADA (autenticación) ----------
+# Igual que la aprobación de conexión de la clase 14, pero con la forma de Godot:
+#
+#   CLIENTE                                    HOST
+#   se conecta ───────────────────────────────►
+#   peer_authenticating(1)                     peer_authenticating(id)
+#   send_auth(1, {versión, id, nombre}) ──────► _on_datos_de_autenticacion(id, datos)
+#                                                 revisa las reglas, en orden
+#   _on_datos_de_autenticacion(1, respuesta) ◄── send_auth(id, {ok: true}) + complete_auth(id)
+#     ok → complete_auth(1) → entra                  o  {ok: false, motivo} + lo desconecta
+#     no → vuelve al menú mostrando el motivo
+#
+# Los datos viajan UNA vez y antes de que el jugador exista: así el host decide con todo en la mano
+# y nunca hay un frame con el jugador sin nombre.
+
+# Los dos lados: arranca la autenticación con alguien.
+func _on_autenticando(id: int) -> void:
+	if _soy_host:
+		return   # el host espera a que el cliente mande sus datos
+	if id != 1:
+		return   # el cliente solo se autentica con el host
+	var datos := {
+		"version": "0.0-prueba" if probar_version_vieja else version_juego,
+		"id_persona": _mi_id_persona,
+		"nombre": _mi_nombre(),
+	}
+	multiplayer.send_auth(1, JSON.stringify(datos).to_utf8_buffer())
+
+
+# Los dos lados: llegaron datos de autenticación.
+func _on_datos_de_autenticacion(id: int, bytes: PackedByteArray) -> void:
+	if _soy_host:
+		_revisar_pedido(id, bytes)
+	else:
+		_leer_respuesta(bytes)
+
+
+## HOST: decide si el que llega puede entrar. Las reglas van en el orden de la clase 14:
+## a un expulsado le decimos que está expulsado, no que la sala está llena.
+func _revisar_pedido(id: int, bytes: PackedByteArray) -> void:
+	var datos := _leer_json(bytes)
+	var motivo := ""
+	if datos.is_empty() or str(datos.get("id_persona", "")) == "":
+		motivo = MOTIVO_DATOS
+	elif str(datos.get("version", "")) != version_juego:
+		motivo = MOTIVO_VERSION % [str(datos.get("version", "?")), version_juego]
+	elif _expulsados.has(str(datos["id_persona"])):
+		motivo = MOTIVO_EXPULSADO
+	elif _esta_conectada(str(datos["id_persona"])):
+		motivo = MOTIVO_DUPLICADO
+	elif partida.estado != Partida.Estado.LOBBY:
+		motivo = MOTIVO_EMPEZADA
+	elif _primer_lugar_libre() == -1:
+		motivo = MOTIVO_LLENA   # la sala de Steam ya limita a 4; esto cubre ENet y casos raros
+
+	if motivo != "":
+		print("Rechazado el jugador ", id, ": ", motivo)
+		_rechazados[id] = true
+		multiplayer.send_auth(id, JSON.stringify({"ok": false, "motivo": motivo}).to_utf8_buffer())
+		# Le damos un momento para que le llegue el motivo. Normalmente se va solo al leerlo;
+		# si sigue ahí (un cliente modificado, por ejemplo), lo cortamos nosotros.
+		get_tree().create_timer(0.5).timeout.connect(func() -> void:
+			if _soy_host and id in multiplayer.get_authenticating_peers():
+				multiplayer.multiplayer_peer.disconnect_peer(id))
+		return
+
+	# Aprobado: guardamos sus datos (limpios: el host no confía en lo que manda el cliente)
+	_sesion[id] = {
+		"id_persona": str(datos["id_persona"]),
+		"nombre": _limpiar_nombre(str(datos.get("nombre", ""))),
+		"version": str(datos["version"]),
+	}
+	multiplayer.send_auth(id, JSON.stringify({"ok": true}).to_utf8_buffer())
+	multiplayer.complete_auth(id)   # cuando el cliente también lo complete, llega peer_connected
+
+
+## CLIENTE: la respuesta del host.
+func _leer_respuesta(bytes: PackedByteArray) -> void:
+	var respuesta := _leer_json(bytes)
+	if respuesta.get("ok", false):
+		multiplayer.complete_auth(1)
+		return
+	# Diferido: no conviene cerrar la conexión en medio de procesar un mensaje de la red
+	_volver_al_menu.call_deferred(str(respuesta.get("motivo", MOTIVO_DATOS)))
+
+
+# Los dos lados: no se completó a tiempo (auth_timeout, 3 s por defecto).
+func _on_autenticacion_fallida(id: int) -> void:
+	if _soy_host:
+		if not _rechazados.erase(id):   # a los rechazados ya los despedimos: no es un timeout
+			print("El jugador ", id, " no completó la entrada a tiempo")
+		return
+	# El host no contestó: lo más probable es que tenga un build viejo (sin esta puerta)
+	_volver_al_menu("El host no respondió al pedido de entrada. ¿Tienen la misma versión del juego?")
+
+
+static func _leer_json(bytes: PackedByteArray) -> Dictionary:
+	if bytes.is_empty() or bytes.size() > MAXIMO_BYTES_DATOS:
+		return {}
+	var datos = JSON.parse_string(bytes.get_string_from_utf8())
+	return datos if datos is Dictionary else {}
+
+
+func _esta_conectada(id_persona: String) -> bool:
+	if id_persona == _mi_id_persona:
+		return true   # el host también cuenta
+	for datos in _sesion.values():
+		if datos["id_persona"] == id_persona:
+			return true
+	return false
+
+
+# ---------- EXPULSAR (solo host) ----------
+
+## Saca a un jugador de la sala y no lo deja volver mientras dure (clase 14, paso 7).
+## Al host no se lo puede expulsar: sin él no hay partida.
+func expulsar(id: int) -> void:
+	if not _soy_host or id == 1 or not id in multiplayer.get_peers():
+		return
+	var datos: Dictionary = _sesion.get(id, {})
+	if datos.has("id_persona"):
+		_expulsados[datos["id_persona"]] = true   # sin esta lista, vuelve a entrar con el mismo código
+	_expulsando[id] = true
+	_avisar.rpc("%s fue expulsado" % partida.nombre_jugador(id))
+	_rechazar(id, MOTIVO_EXPULSADO)
+
+
+## Lista para el panel del host: los que se pueden expulsar (todos menos el host).
+func jugadores_expulsables() -> Array:
+	var lista := []
+	for id in partida.jugadores:
+		if id != 1 and id in multiplayer.get_peers():
+			lista.append(id)
+	return lista
+
+
+# ---------- AVISOS PARA TODOS ----------
+
+## El host la llama en TODAS las PCs (clase 13: "los que se quedan tienen que enterarse").
+@rpc("authority", "call_local", "reliable")
+func _avisar(texto: String) -> void:
+	aviso.emit(texto)
 
 
 # ---------- CREAR PARTIDA (host) ----------
@@ -123,10 +329,43 @@ func _crear_host_enet() -> void:
 
 func _empezar_como_host() -> void:
 	_soy_host = true
-	_agregar_jugador(1)  # el host también juega; su id siempre es 1
-	partida.iniciar()    # solo el host corre las reglas
+	partida.abrir_lobby()  # solo el host corre las reglas; arranca esperando en el lobby
+	_sesion.clear()
+	_expulsados.clear()   # cada sala nueva arranca de cero
+	_expulsando.clear()
+	_rechazados.clear()
+	_agregar_jugador(1)    # el host también juega; su id siempre es 1
+	partida.nombres[1] = _mi_nombre()
 	menu.hide()
-	print("Partida creada. Sala: ", codigo_sala if usar_steam else "ENet puerto %d" % PUERTO)
+	print("Sala creada: ", codigo_sala if usar_steam else "ENet puerto %d" % PUERTO)
+
+
+## Botón "Iniciar" del lobby (solo lo ve el host).
+func iniciar_partida() -> void:
+	if _soy_host:
+		partida.empezar()
+
+
+## Botón "Volver al menú" (resultados) o "Salir al menú" (Esc). Sirve para host y clientes.
+func salir_al_menu() -> void:
+	_volver_al_menu("Volviste al menú.")
+
+
+func soy_host() -> bool:
+	return _soy_host
+
+
+## ¿Estamos conectados a una sala (como host o como cliente)?
+func esta_en_sala() -> bool:
+	var peer := multiplayer.multiplayer_peer
+	return peer != null and not peer is OfflineMultiplayerPeer \
+			and peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
+
+
+# En el host: la sala de Steam solo se puede buscar y unirse mientras estamos en el lobby.
+func _on_estado_cambiado(nuevo: Partida.Estado) -> void:
+	if _soy_host and usar_steam and _id_sala != 0:
+		Steam.setLobbyJoinable(_id_sala, nuevo == Partida.Estado.LOBBY)
 
 
 # ---------- UNIRSE (cliente) ----------
@@ -165,7 +404,7 @@ func _on_sala_unida(id_sala: int, _permisos: int, _bloqueada: bool, respuesta: i
 	if _soy_host:
 		return
 	if respuesta != Steam.CHAT_ROOM_ENTER_RESPONSE_SUCCESS:
-		_estado("No se pudo entrar a la sala (respuesta %d). ¿Está llena?" % respuesta)
+		_estado("No se pudo entrar a la sala (respuesta %d). ¿Está llena o ya empezó?" % respuesta)
 		_habilitar_botones(true)
 		return
 	_id_sala = id_sala
@@ -201,8 +440,16 @@ func _unirse_enet() -> void:
 # ---------- JUGADORES (solo corre en el host) ----------
 
 func _on_peer_conectado(id: int) -> void:
-	if _soy_host:
-		_agregar_jugador(id)
+	if not _soy_host:
+		return
+	# Acá solo llegan los que pasaron la puerta (_revisar_pedido). Por las dudas, si la partida
+	# empezó en el medio (entre la aprobación y este momento), igual lo echamos.
+	if not _sesion.has(id) or partida.estado != Partida.Estado.LOBBY:
+		_rechazar(id, MOTIVO_EMPEZADA)
+		return
+	_agregar_jugador(id)
+	partida.nombres[id] = _sesion[id]["nombre"]   # el nombre llegó con el pedido de entrada
+	_avisar.rpc("%s entró a la sala" % partida.nombre_jugador(id))
 
 
 func _on_peer_desconectado(id: int) -> void:
@@ -210,10 +457,27 @@ func _on_peer_desconectado(id: int) -> void:
 		_quitar_jugador(id)
 
 
+## Le avisa al jugador por qué no puede entrar y lo desconecta.
+func _rechazar(id: int, motivo: String) -> void:
+	print("Rechazado el jugador ", id, ": ", motivo)
+	_avisar_rechazo.rpc_id(id, motivo)
+	# Le damos medio segundo para que le llegue el aviso; si no se fue solo, lo desconectamos.
+	get_tree().create_timer(0.5).timeout.connect(func() -> void:
+		if _soy_host and id in multiplayer.get_peers():
+			multiplayer.multiplayer_peer.disconnect_peer(id))
+
+
+## Corre en el cliente rechazado: vuelve al menú mostrando el motivo.
+@rpc("authority", "reliable")
+func _avisar_rechazo(motivo: String) -> void:
+	# Diferido: no conviene cerrar la conexión en medio de procesar un mensaje de la red
+	_volver_al_menu.call_deferred(motivo)
+
+
 func _agregar_jugador(id: int) -> void:
 	var indice := _primer_lugar_libre()
 	if indice == -1:
-		print("Partida llena, no entra el jugador ", id)
+		_rechazar(id, MOTIVO_LLENA)
 		return
 	partida.jugadores[id] = indice   # para el HUD: nombre y color de cada id
 	var datos := {"id": id, "indice": indice, "posicion": spawns[indice].global_position}
@@ -245,9 +509,15 @@ func _primer_lugar_libre() -> int:
 
 
 func _quitar_jugador(id: int) -> void:
+	var nombre: String = partida.nombre_jugador(id)   # antes de que jugador_salio lo borre de la lista
 	var jugador := contenedor_jugadores.get_node_or_null(str(id))
 	if jugador:
 		jugador.queue_free()
+		partida.jugador_salio(id)   # si estaba jugando y queda uno solo, se termina la partida
+		if not _expulsando.has(id):   # al expulsado ya lo anunciamos
+			_avisar.rpc("%s se fue de la partida" % nombre)
+	_sesion.erase(id)
+	_expulsando.erase(id)
 	print("Salió el jugador ", id)
 
 
@@ -258,14 +528,20 @@ func _on_conexion_fallida() -> void:
 
 
 func _on_host_desconectado() -> void:
-	_volver_al_menu("El host cerró la partida.")
+	if not partida.resultado.is_empty():
+		# La partida ya terminó y el host volvió al menú: dejamos la pantalla de resultados
+		# hasta que este jugador toque "Volver al menú". Solo cortamos la conexión.
+		_cerrar_conexion()
+		return
+	# Desde el cliente no se puede distinguir "el host se fue" de "se cortó la red" (clase 14, paso 6)
+	_volver_al_menu("Se perdió la conexión con el host (cerró la partida o se cortó la red).")
 
 
+## Deja todo como al abrir el juego: sin conexión, sin sala, sin jugadores ni objetos.
+## Sirve igual para el host y para los clientes.
 func _volver_al_menu(motivo: String) -> void:
 	print(motivo)
-	multiplayer.multiplayer_peer = null
-	_salir_de_la_sala()
-	_soy_host = false
+	_cerrar_conexion()
 	codigo_sala = ""
 	for jugador in contenedor_jugadores.get_children():
 		jugador.queue_free()
@@ -273,6 +549,20 @@ func _volver_al_menu(motivo: String) -> void:
 	menu.show()
 	_habilitar_botones(true)
 	_estado(motivo)
+
+
+func _cerrar_conexion() -> void:
+	# Primero dejamos de ser host: así, si al cerrar llegan avisos de "se fue X",
+	# no se corren las reglas (ni se mandan RPC por una conexión que se está cerrando).
+	_soy_host = false
+	partida.soy_host = false
+	var peer := multiplayer.multiplayer_peer
+	if peer != null and not peer is OfflineMultiplayerPeer:
+		peer.close()   # avisa a los demás enseguida (si no, se enteran recién por timeout)
+	# Sin conexión dejamos un peer "offline" (no null): así get_unique_id() y compañía
+	# siguen respondiendo (id 1) en vez de tirar error mientras estamos en el menú.
+	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
+	_salir_de_la_sala()
 
 
 func _salir_de_la_sala() -> void:
