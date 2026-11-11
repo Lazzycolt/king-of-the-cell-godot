@@ -23,6 +23,12 @@ var indice := 0
 ## Qué parte de la velocidad conserva al chocar una pared.[br]0 = se clava, 1 = rebota sin perder nada.
 @export_range(0.0, 1.0, 0.05) var rebote := 0.7
 
+@export_group("Topetazo")
+## Fricción mientras está "lanzado" por un topetazo (como bola de billar).[br]Más bajo = se desliza más lejos.
+@export_range(0, 3000, 10, "suffix:px/s²") var friccion_lanzado := 250.0
+## Rebote en paredes mientras está lanzado.[br]Cerca de 1 = rebota casi sin perder velocidad.
+@export_range(0.0, 1.0, 0.05) var rebote_lanzado := 0.95
+
 @export_group("Red")
 ## Qué tan rápido las copias de los OTROS jugadores alcanzan la posición que llega por red.[br]Más alto = más pegado al dato real pero más "a saltitos". Más bajo = más suave pero con más retraso.
 @export_range(1.0, 40.0, 0.5) var suavizado := 15.0
@@ -38,6 +44,9 @@ var carga := 0.0
 # --- Golpes (los cambia el servidor con recibir_golpe; todas las PCs lo saben) ---
 var aturdido := 0.0    # segundos que le quedan aturdido
 var inmune := 0.0      # segundos que le quedan sin poder recibir golpes
+var escudo := 0.0      # segundos que le quedan con escudo (objeto): nadie lo puede golpear
+var topetazo := 0.0    # segundos que le quedan para usar el topetazo (objeto): su próximo golpe es brutal
+var lanzado := 0.0     # segundos que le quedan deslizándose como bola de billar (recibió un topetazo)
 
 
 func _enter_tree() -> void:
@@ -57,6 +66,9 @@ func _physics_process(delta: float) -> void:
 	# Los contadores bajan en todas las PCs, así todos lo dibujan igual
 	aturdido = maxf(aturdido - delta, 0.0)
 	inmune = maxf(inmune - delta, 0.0)
+	escudo = maxf(escudo - delta, 0.0)
+	topetazo = maxf(topetazo - delta, 0.0)
+	lanzado = maxf(lanzado - delta, 0.0)
 	# Si este personaje no es mío, no leo input ni lo muevo:
 	# su posición me llega por red desde la PC del dueño.
 	if not is_multiplayer_authority():
@@ -89,7 +101,10 @@ func _soltar() -> void:
 
 
 func _mover(delta: float) -> void:
-	velocity = velocity.move_toward(Vector2.ZERO, friccion * delta)
+	# Si recibió un topetazo, casi no frena y rebota fuerte: va y viene como bola de billar
+	var friccion_actual := friccion_lanzado if lanzado > 0.0 else friccion
+	var rebote_actual := rebote_lanzado if lanzado > 0.0 else rebote
+	velocity = velocity.move_toward(Vector2.ZERO, friccion_actual * delta)
 	var choque := move_and_collide(velocity * delta)
 	if choque == null:
 		return
@@ -102,19 +117,37 @@ func _mover(delta: float) -> void:
 		velocity = velocity.bounce(choque.get_normal()) * 0.2
 	else:
 		# Pared: rebote normal
-		velocity = velocity.bounce(choque.get_normal()) * rebote
+		velocity = velocity.bounce(choque.get_normal()) * rebote_actual
 
 
 ## El servidor la llama en TODAS las PCs cuando este jugador recibe un golpe válido.
+## tiempo_lanzado > 0 = fue un topetazo: se desliza como bola de billar ese tiempo.
 @rpc("any_peer", "call_local", "reliable")
-func recibir_golpe(impulso: Vector2, tiempo_aturdido: float, tiempo_inmune: float) -> void:
+func recibir_golpe(impulso: Vector2, tiempo_aturdido: float, tiempo_inmune: float, tiempo_lanzado: float) -> void:
 	if multiplayer.get_remote_sender_id() != 1:
 		return   # solo el servidor (id 1) puede mandar golpes
 	aturdido = tiempo_aturdido
 	inmune = tiempo_aturdido + tiempo_inmune
+	lanzado = tiempo_lanzado
 	cargando = false
 	if is_multiplayer_authority():
 		velocity = impulso   # solo el dueño mueve su personaje
+
+
+## El servidor la llama en TODAS las PCs cuando este jugador agarra un escudo.
+@rpc("any_peer", "call_local", "reliable")
+func recibir_escudo(duracion: float) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return   # solo el servidor (id 1) puede dar objetos
+	escudo = maxf(escudo, duracion)   # si agarra otro, se renueva (no se suma)
+
+
+## El servidor la llama en TODAS las PCs: da el topetazo (duracion > 0) o lo gasta (duracion = 0).
+@rpc("any_peer", "call_local", "reliable")
+func poner_topetazo(duracion: float) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return   # solo el servidor (id 1) puede dar objetos
+	topetazo = duracion
 
 
 func _draw() -> void:
@@ -124,6 +157,17 @@ func _draw() -> void:
 	elif inmune > 0.0 and int(inmune * 10) % 2 == 0:
 		c.a = 0.4   # parpadea mientras es inmune
 	draw_circle(Vector2.ZERO, RADIO, c)
+	if escudo > 0.0:
+		# Anillo celeste. El último segundo y medio parpadea para avisar que se termina.
+		if escudo > 1.5 or int(escudo * 8) % 2 == 0:
+			draw_arc(Vector2.ZERO, RADIO + 7, 0, TAU, 40, Color(0.3, 0.9, 1.0), 4.0)
+	if topetazo > 0.0:
+		# Pinchos naranjas que laten. El último segundo y medio parpadean.
+		if topetazo > 1.5 or int(topetazo * 8) % 2 == 0:
+			var latido := 1.0 + sin(Time.get_ticks_msec() / 80.0) * 0.15
+			for i in 8:
+				var dir := Vector2.from_angle(i * TAU / 8)
+				draw_line(dir * (RADIO + 3), dir * (RADIO + 12) * latido, Color(1.0, 0.5, 0.1), 4.0)
 	if aturdido > 0.0:
 		# "Estrellitas" girando arriba de la cabeza
 		var giro := Time.get_ticks_msec() / 150.0

@@ -25,9 +25,27 @@ extends Node2D
 ## Distancia máxima entre los dos para creer el golpe (cubre el retraso de la red).
 @export_range(48, 300, 1, "suffix:px") var distancia_maxima_golpe := 90.0
 
+@export_group("Objetos")
+## Segundos entre que aparece un objeto y el siguiente.
+@export_range(1, 60, 1, "suffix:s") var intervalo_objetos := 12.0
+## Cuántos objetos puede haber a la vez en la arena.
+@export_range(1, 5, 1) var max_objetos := 1
+## Segundos que dura el escudo (nadie te puede golpear, pero vos sí podés pegar).
+@export_range(1, 20, 0.5, "suffix:s") var duracion_escudo := 5.0
+## Segundos que tenés para usar el topetazo después de agarrarlo. Se gasta con el primer golpe.
+@export_range(1, 30, 0.5, "suffix:s") var duracion_topetazo := 8.0
+## Con topetazo, el golpeado sale a (salto máximo del atacante × esto).[br]2 = el doble de rápido que tu mejor salto.
+@export_range(1.0, 4.0, 0.1) var fuerza_topetazo := 2.2
+## Segundos que el golpeado se desliza como bola de billar (poca fricción, mucho rebote). Está aturdido mientras tanto.
+@export_range(0.5, 5.0, 0.1, "suffix:s") var tiempo_lanzado := 1.5
+
 @export_group("Referencias")
 ## Nodo donde están los jugadores (el mismo que usa red.gd).
 @export var contenedor_jugadores: Node2D
+## MultiplayerSpawner que crea los objetos en todas las PCs.
+@export var spawner_objetos: MultiplayerSpawner
+## Nodo donde aparecen los objetos. Tiene que ser el "Spawn Path" de spawner_objetos.
+@export var contenedor_objetos: Node2D
 ## Texto donde se muestran los puntos y el tiempo.
 @export var etiqueta_hud: Label
 
@@ -41,13 +59,18 @@ var jugadores := {}              # { id_jugador: indice }  el indice (0 a 3) dec
 const NOMBRES := ["Rojo", "Azul", "Verde", "Amarillo"]
 
 var en_curso := false            # solo se usa en el host
+var tiempo_para_objeto := 0.0    # solo se usa en el host
+var contador_objetos := 0        # solo se usa en el host (para darle un nombre único a cada objeto)
 
 func _ready() -> void:
 	add_to_group("partida")   # así los jugadores la encuentran para reportar golpes
+	# Le decimos al spawner CÓMO armar un objeto. Esta función corre en TODAS las PCs.
+	spawner_objetos.spawn_function = _crear_objeto
 
 ## Lo llama red.gd en el host al crear la partida.
 func iniciar() -> void:
 	en_curso = true
+	tiempo_para_objeto = intervalo_objetos
 	_cambiar_celda()
 
 
@@ -57,6 +80,8 @@ func reiniciar() -> void:
 	celda_activa = -1
 	puntos = {}
 	jugadores = {}
+	for objeto in contenedor_objetos.get_children():
+		objeto.queue_free()
 
 
 func _physics_process(delta: float) -> void:
@@ -72,6 +97,7 @@ func _actualizar_reglas(delta: float) -> void:
 	tiempo_para_cambio -= delta
 	if tiempo_para_cambio <= 0.0:
 		_cambiar_celda()
+	_actualizar_objetos(delta)
 
 	var adentro := []
 	for jugador in contenedor_jugadores.get_children():
@@ -99,8 +125,8 @@ func reportar_golpe(id_victima: int, velocidad: Vector2) -> void:
 		return   # un aturdido no puede pegar
 	if victima.inmune > 0.0:
 		return   # ya está aturdido o recién salió
-	# Usamos posicion_red (el último dato real que llegó), NO position:
-	# en el host, la position de un jugador remoto está interpolada y va unos píxeles atrás.
+	if victima.escudo > 0.0:
+		return   # tiene escudo: no se lo puede golpear
 	if velocidad.length() < velocidad_minima_golpe:
 		return   # fue un roce, no un golpe
 	# Usamos posicion_red (el último dato real que llegó), NO position:
@@ -113,7 +139,15 @@ func reportar_golpe(id_victima: int, velocidad: Vector2) -> void:
 
 	# --- Golpe válido: se lo aplicamos a la víctima en todas las PCs ---
 	var direccion := (victima.posicion_red - atacante.posicion_red).normalized()
-	victima.recibir_golpe.rpc(direccion * rapidez * fuerza_empuje, duracion_aturdido, duracion_inmunidad)
+	if atacante.topetazo > 0.0:
+		# TOPETAZO: sale disparado a full aunque el golpe no haya sido tan fuerte, y queda
+		# deslizándose como bola de billar. Aturdido todo ese tiempo, así no puede frenarse saltando.
+		var empuje := atacante.fuerza_maxima * fuerza_topetazo
+		victima.recibir_golpe.rpc(direccion * empuje, maxf(duracion_aturdido, tiempo_lanzado), duracion_inmunidad, tiempo_lanzado)
+		atacante.poner_topetazo.rpc(0.0)   # se gasta
+		print("¡TOPETAZO! ", id_atacante, " → ", id_victima)
+		return
+	victima.recibir_golpe.rpc(direccion * rapidez * fuerza_empuje, duracion_aturdido, duracion_inmunidad, 0.0)
 	print("Golpe: ", id_atacante, " → ", id_victima)
 
 func _cambiar_celda() -> void:
@@ -123,6 +157,80 @@ func _cambiar_celda() -> void:
 			opciones.append(i)
 	celda_activa = opciones.pick_random()
 	tiempo_para_cambio = duracion_celda
+
+
+# ---------- OBJETOS (solo host, salvo _crear_objeto) ----------
+
+func _actualizar_objetos(delta: float) -> void:
+	# ¿Alguien pasó por encima de un objeto?
+	for objeto: Objeto in contenedor_objetos.get_children():
+		if objeto.is_queued_for_deletion():
+			continue
+		for jugador: Jugador in contenedor_jugadores.get_children():
+			# posicion_red = el último dato real del jugador (ver comentario en reportar_golpe)
+			if jugador.posicion_red.distance_to(objeto.position) < Jugador.RADIO + Objeto.RADIO:
+				_aplicar_objeto(objeto.tipo, jugador)
+				objeto.queue_free()   # el spawner lo borra también en los clientes
+				break
+
+	# ¿Toca que aparezca uno nuevo?
+	tiempo_para_objeto -= delta
+	if tiempo_para_objeto > 0.0:
+		return
+	tiempo_para_objeto = intervalo_objetos
+	var cantidad := 0
+	for objeto in contenedor_objetos.get_children():
+		if not objeto.is_queued_for_deletion():
+			cantidad += 1
+	if cantidad >= max_objetos:
+		return
+	contador_objetos += 1
+	# spawn() llama a _crear_objeto acá y en cada cliente, con los mismos datos
+	spawner_objetos.spawn({
+		"nombre": "Objeto%d" % contador_objetos,
+		"tipo": Objeto.Tipo.values().pick_random(),
+		"posicion": _lugar_para_objeto(),
+	})
+
+
+## Elige el centro de una celda que no sea la activa y que no esté pegada a un jugador ni a otro objeto.
+func _lugar_para_objeto() -> Vector2:
+	var opciones := []
+	for i in Arena.COLUMNAS * Arena.FILAS:
+		if i == celda_activa:
+			continue
+		var centro := rect_de_celda(i).get_center()
+		var libre := true
+		for jugador: Jugador in contenedor_jugadores.get_children():
+			if jugador.posicion_red.distance_to(centro) < Arena.TAM_CELDA:
+				libre = false
+		for objeto: Node2D in contenedor_objetos.get_children():
+			if objeto.position.distance_to(centro) < 1.0:
+				libre = false
+		if libre:
+			opciones.append(centro)
+	if opciones.is_empty():   # caso raro: todo ocupado, va a cualquier celda
+		return rect_de_celda(randi() % (Arena.COLUMNAS * Arena.FILAS)).get_center()
+	return opciones.pick_random()
+
+
+## Aplica el efecto del objeto al jugador que lo agarró.
+func _aplicar_objeto(tipo: Objeto.Tipo, jugador: Jugador) -> void:
+	match tipo:
+		Objeto.Tipo.ESCUDO:
+			jugador.recibir_escudo.rpc(duracion_escudo)
+		Objeto.Tipo.TOPETAZO:
+			jugador.poner_topetazo.rpc(duracion_topetazo)
+	print("El jugador ", jugador.name, " agarró: ", Objeto.Tipo.keys()[tipo])
+
+
+# Corre en TODAS las PCs. Arma el objeto con los datos que mandó el host.
+func _crear_objeto(datos: Dictionary) -> Node:
+	var objeto := Objeto.new()
+	objeto.name = datos["nombre"]
+	objeto.tipo = datos["tipo"]
+	objeto.position = datos["posicion"]
+	return objeto
 
 
 # ---------- GRILLA ----------

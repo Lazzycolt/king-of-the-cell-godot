@@ -66,11 +66,13 @@ position = Vector2(360, -240)
 [node name="Spawn4" type="Marker2D" parent="." unique_id=246855203]
 position = Vector2(-360, 240)
 
-[node name="Partida" type="Node2D" parent="." unique_id=315853681 node_paths=PackedStringArray("contenedor_jugadores", "etiqueta_hud")]
+[node name="Partida" type="Node2D" parent="." unique_id=315853681 node_paths=PackedStringArray("contenedor_jugadores", "spawner_objetos", "contenedor_objetos", "etiqueta_hud")]
 script = ExtResource("2_dh05g")
 duracion_celda = 10.0
 duracion_inmunidad = 1.0
 contenedor_jugadores = NodePath("../Jugadores")
+spawner_objetos = NodePath("../SpawnerObjetos")
+contenedor_objetos = NodePath("../Objetos")
 etiqueta_hud = NodePath("../HUD/Texto")
 
 [node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="Partida" unique_id=619219609]
@@ -80,6 +82,11 @@ replication_config = SubResource("SceneReplicationConfig_honmh")
 
 [node name="MultiplayerSpawner" type="MultiplayerSpawner" parent="." unique_id=1518382595]
 spawn_path = NodePath("../Jugadores")
+
+[node name="Objetos" type="Node2D" parent="." unique_id=1927170686]
+
+[node name="SpawnerObjetos" type="MultiplayerSpawner" parent="." unique_id=1295341916]
+spawn_path = NodePath("../Objetos")
 
 [node name="Menu" type="CanvasLayer" parent="." unique_id=145920018]
 
