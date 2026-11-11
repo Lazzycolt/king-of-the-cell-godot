@@ -50,7 +50,7 @@ const MAXIMO_BYTES_DATOS := 1024
 const MOTIVO_DATOS := "No se pudieron leer tus datos de conexión."
 const MOTIVO_VERSION := "Tu versión del juego (%s) no es la misma que la del host (%s). Actualizá el juego."
 const MOTIVO_EXPULSADO := "El host te expulsó de la partida."
-const MOTIVO_DUPLICADO := "Ya hay alguien conectado con tu cuenta."
+const MOTIVO_DUPLICADO := "Ya hay alguien conectado con tu cuenta. Si se te cortó, esperá unos segundos y probá de nuevo."
 const MOTIVO_EMPEZADA := "La partida ya empezó. Esperá a que termine."
 const MOTIVO_LLENA := "La sala está llena."
 
@@ -80,6 +80,9 @@ var _sesion := {}        # { id_peer: { "id_persona", "nombre", "version" } } lo
 var _expulsados := {}    # { id_persona: true } no vuelven a entrar a esta sala
 var _expulsando := {}    # { id_peer: true } para no avisar "se fue" de alguien que acabamos de echar
 var _rechazados := {}    # { id_peer: true } rechazados en la puerta (para no confundirlos con un timeout)
+## Los que se fueron a mitad de partida y pueden volver con sus puntos (clase 14, paso 8).
+## La clave es la PERSONA, no la conexión: al volver le toca otro id de peer.
+var _desconectados := {} # { id_persona: id_peer_viejo }
 
 
 func _ready() -> void:
@@ -188,8 +191,8 @@ func _revisar_pedido(id: int, bytes: PackedByteArray) -> void:
 		motivo = MOTIVO_EXPULSADO
 	elif _esta_conectada(str(datos["id_persona"])):
 		motivo = MOTIVO_DUPLICADO
-	elif partida.estado != Partida.Estado.LOBBY:
-		motivo = MOTIVO_EMPEZADA
+	elif partida.estado != Partida.Estado.LOBBY and not _puede_volver(str(datos["id_persona"])):
+		motivo = MOTIVO_EMPEZADA   # con la partida empezada solo entra el que se había ido
 	elif _primer_lugar_libre() == -1:
 		motivo = MOTIVO_LLENA   # la sala de Steam ya limita a 4; esto cubre ENet y casos raros
 
@@ -239,6 +242,11 @@ static func _leer_json(bytes: PackedByteArray) -> Dictionary:
 		return {}
 	var datos = JSON.parse_string(bytes.get_string_from_utf8())
 	return datos if datos is Dictionary else {}
+
+
+## ¿Es alguien que se fue a mitad de esta partida y puede volver con sus puntos?
+func _puede_volver(id_persona: String) -> bool:
+	return partida.estado == Partida.Estado.JUGANDO and _desconectados.has(id_persona)
 
 
 func _esta_conectada(id_persona: String) -> bool:
@@ -334,6 +342,7 @@ func _empezar_como_host() -> void:
 	_expulsados.clear()   # cada sala nueva arranca de cero
 	_expulsando.clear()
 	_rechazados.clear()
+	_desconectados.clear()
 	_agregar_jugador(1)    # el host también juega; su id siempre es 1
 	partida.nombres[1] = _mi_nombre()
 	menu.hide()
@@ -348,6 +357,9 @@ func iniciar_partida() -> void:
 
 ## Botón "Volver al menú" (resultados) o "Salir al menú" (Esc). Sirve para host y clientes.
 func salir_al_menu() -> void:
+	if not _soy_host and partida.estado == Partida.Estado.JUGANDO:
+		_volver_al_menu("Saliste de la partida. Si tocás Unirse con el mismo código, volvés con tus puntos.")
+		return
 	_volver_al_menu("Volviste al menú.")
 
 
@@ -362,10 +374,12 @@ func esta_en_sala() -> bool:
 			and peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
 
 
-# En el host: la sala de Steam solo se puede buscar y unirse mientras estamos en el lobby.
+# En el host: la sala de Steam se puede buscar hasta que termina la partida. Mientras se juega
+# sigue abierta para que pueda volver el que se cortó; a los nuevos los frena la puerta de entrada
+# (con el motivo "La partida ya empezó"), que es más claro que un error de Steam.
 func _on_estado_cambiado(nuevo: Partida.Estado) -> void:
 	if _soy_host and usar_steam and _id_sala != 0:
-		Steam.setLobbyJoinable(_id_sala, nuevo == Partida.Estado.LOBBY)
+		Steam.setLobbyJoinable(_id_sala, nuevo != Partida.Estado.FINALIZADO)
 
 
 # ---------- UNIRSE (cliente) ----------
@@ -444,12 +458,32 @@ func _on_peer_conectado(id: int) -> void:
 		return
 	# Acá solo llegan los que pasaron la puerta (_revisar_pedido). Por las dudas, si la partida
 	# empezó en el medio (entre la aprobación y este momento), igual lo echamos.
-	if not _sesion.has(id) or partida.estado != Partida.Estado.LOBBY:
+	if not _sesion.has(id):
+		_rechazar(id, MOTIVO_DATOS)
+		return
+	var persona: String = _sesion[id]["id_persona"]
+	if _puede_volver(persona):
+		_reincorporar(id, persona)
+		return
+	if partida.estado != Partida.Estado.LOBBY:
 		_rechazar(id, MOTIVO_EMPEZADA)
 		return
 	_agregar_jugador(id)
 	partida.nombres[id] = _sesion[id]["nombre"]   # el nombre llegó con el pedido de entrada
 	_avisar.rpc("%s entró a la sala" % partida.nombre_jugador(id))
+
+
+## Vuelve alguien que se había ido a mitad de partida: aparece en su esquina, con su color y sus puntos.
+func _reincorporar(id: int, persona: String) -> void:
+	var id_viejo: int = _desconectados[persona]
+	_desconectados.erase(persona)
+	_agregar_jugador(id, partida.jugadores.get(id_viejo, -1))
+	if not partida.jugadores.has(id):
+		return   # no había lugar (no debería pasar: los nuevos no entran con la partida empezada)
+	partida.nombres[id] = _sesion[id]["nombre"]
+	partida.reincorporar(id_viejo, id)
+	_avisar.rpc("%s volvió a la partida (%d puntos)" % [partida.nombre_jugador(id), roundi(partida.puntos.get(id, 0.0))])
+	print("Volvió el jugador ", id, " (antes ", id_viejo, ")")
 
 
 func _on_peer_desconectado(id: int) -> void:
@@ -474,8 +508,9 @@ func _avisar_rechazo(motivo: String) -> void:
 	_volver_al_menu.call_deferred(motivo)
 
 
-func _agregar_jugador(id: int) -> void:
-	var indice := _primer_lugar_libre()
+## lugar_preferido: el que tenía antes (al reconectar), si sigue libre. Si no, el primero libre.
+func _agregar_jugador(id: int, lugar_preferido := -1) -> void:
+	var indice := lugar_preferido if _lugar_libre(lugar_preferido) else _primer_lugar_libre()
 	if indice == -1:
 		_rechazar(id, MOTIVO_LLENA)
 		return
@@ -499,21 +534,31 @@ func _crear_jugador(datos: Dictionary) -> Node:
 # Si alguien se va, su lugar (spawn y color) queda libre para el próximo que entre.
 func _primer_lugar_libre() -> int:
 	for i in mini(MAX_JUGADORES, spawns.size()):
-		var ocupado := false
-		for jugador in contenedor_jugadores.get_children():
-			if jugador.indice == i:
-				ocupado = true
-		if not ocupado:
+		if _lugar_libre(i):
 			return i
 	return -1
+
+
+func _lugar_libre(indice: int) -> bool:
+	if indice < 0 or indice >= mini(MAX_JUGADORES, spawns.size()):
+		return false
+	for jugador in contenedor_jugadores.get_children():
+		if jugador.indice == indice and not jugador.is_queued_for_deletion():
+			return false
+	return true
 
 
 func _quitar_jugador(id: int) -> void:
 	var nombre: String = partida.nombre_jugador(id)   # antes de que jugador_salio lo borre de la lista
 	var jugador := contenedor_jugadores.get_node_or_null(str(id))
+	# Si se va a mitad de partida (y no lo echamos), lo anotamos por PERSONA para que pueda volver
+	var puede_volver: bool = jugador != null and partida.estado == Partida.Estado.JUGANDO \
+			and not _expulsando.has(id) and _sesion.has(id)
+	if puede_volver:
+		_desconectados[_sesion[id]["id_persona"]] = id
 	if jugador:
 		jugador.queue_free()
-		partida.jugador_salio(id)   # si estaba jugando y queda uno solo, se termina la partida
+		partida.jugador_salio(id, puede_volver)   # si queda uno solo, se espera a que vuelva o se termina
 		if not _expulsando.has(id):   # al expulsado ya lo anunciamos
 			_avisar.rpc("%s se fue de la partida" % nombre)
 	_sesion.erase(id)
@@ -534,7 +579,11 @@ func _on_host_desconectado() -> void:
 		_cerrar_conexion()
 		return
 	# Desde el cliente no se puede distinguir "el host se fue" de "se cortó la red" (clase 14, paso 6)
-	_volver_al_menu("Se perdió la conexión con el host (cerró la partida o se cortó la red).")
+	var motivo := "Se perdió la conexión con el host (cerró la partida o se cortó la red)."
+	if partida.estado == Partida.Estado.JUGANDO:
+		# El código (o la IP) sigue escrito en el campo: con tocar Unirse alcanza
+		motivo += "\nSi la partida sigue, tocá Unirse para volver con tus puntos."
+	_volver_al_menu(motivo)
 
 
 ## Deja todo como al abrir el juego: sin conexión, sin sala, sin jugadores ni objetos.

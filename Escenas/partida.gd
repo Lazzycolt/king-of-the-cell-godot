@@ -18,6 +18,9 @@ enum Estado { LOBBY, CUENTA_ATRAS, JUGANDO, FINALIZADO }
 @export_range(1, 10, 1, "suffix:s") var duracion_cuenta_atras := 3.0
 ## Jugadores necesarios para que el host pueda iniciar.
 @export_range(1, 4, 1) var minimo_jugadores := 2
+## Si a mitad de partida se corta alguien y queda uno solo, cuántos segundos se espera a que vuelva
+## antes de terminar (la ronda queda en pausa mientras tanto). 0 = se termina enseguida.
+@export_range(0, 120, 5, "suffix:s") var espera_reconexion := 30.0
 
 @export_group("Reglas")
 ## Segundos que la celda se queda en un lugar antes de saltar a otro.
@@ -88,6 +91,7 @@ var nombres := {}                # { id_jugador: nombre de Steam }  (vacío en E
 var tiempo_en_celda := {}        # { id_jugador: segundos } dentro de la celda (aunque esté compartida). Desempate.
 var tiempo_restante := 0.0       # segundos que le quedan a la ronda
 var cuenta_atras := 0.0          # segundos que le quedan a la cuenta atrás
+var esperando := 0.0             # > 0: quedó uno solo y se espera a que vuelva el que se cortó (ronda en pausa)
 var estado := Estado.LOBBY:
 	set(nuevo):
 		if nuevo == estado:
@@ -139,6 +143,7 @@ func reiniciar() -> void:
 	tiempo_para_cambio = 0.0
 	tiempo_restante = 0.0
 	cuenta_atras = 0.0
+	esperando = 0.0
 	puntos = {}
 	tiempo_en_celda = {}
 	jugadores = {}
@@ -173,6 +178,7 @@ func empezar() -> bool:
 	puntos = {}
 	tiempo_en_celda = {}
 	celda_activa = -1
+	esperando = 0.0
 	_reaparicion = {}   # ir_a también levanta a los que estaban caídos
 	_borrar_objetos()
 	# Cada uno vuelve a su esquina. La posición la controla el dueño, así que se lo pedimos por RPC.
@@ -192,6 +198,12 @@ func _actualizar_host(delta: float) -> void:
 			if cuenta_atras <= 0.0:
 				_arrancar_ronda()
 		Estado.JUGANDO:
+			if esperando > 0.0:
+				# Quedó uno solo: la ronda no avanza hasta que vuelva alguien o se acabe la espera
+				esperando = maxf(esperando - delta, 0.0)
+				if esperando <= 0.0:
+					_finalizar()
+				return
 			tiempo_restante = maxf(tiempo_restante - delta, 0.0)
 			_actualizar_reglas(delta)
 			if tiempo_restante <= 0.0:
@@ -207,6 +219,7 @@ func _arrancar_ronda() -> void:
 
 ## Se acabó (por tiempo o porque quedó uno solo). Arma el ranking y se lo manda a todos.
 func _finalizar() -> void:
+	esperando = 0.0
 	estado = Estado.FINALIZADO
 	var filas := []
 	for id in jugadores:
@@ -244,7 +257,8 @@ func mostrar_resultados(filas: Array) -> void:
 
 
 ## Lo llama red.gd en el host cuando se va un jugador (su nodo ya está marcado para borrarse).
-func jugador_salio(id: int) -> void:
+## puede_volver = se cortó o salió (no fue expulsado): sus puntos lo esperan por si reconecta.
+func jugador_salio(id: int, puede_volver := false) -> void:
 	if not soy_host:
 		return
 	match estado:
@@ -257,9 +271,28 @@ func jugador_salio(id: int) -> void:
 			if jugadores_conectados().size() < minimo_jugadores:
 				estado = Estado.LOBBY   # no da para empezar: volvemos a esperar
 		Estado.JUGANDO:
-			# Sus puntos quedan en la tabla. Si queda uno solo, se termina.
+			# Sus puntos quedan en la tabla (y los recupera si vuelve). Si queda uno solo,
+			# se espera un rato a que vuelva; si no puede volver, se termina.
 			if jugadores_conectados().size() < 2:
-				_finalizar()
+				if puede_volver and espera_reconexion > 0.0:
+					esperando = espera_reconexion
+				else:
+					_finalizar()
+
+
+## RECONEXIÓN (clase 14, paso 8). Lo llama red.gd en el host cuando vuelve alguien que se había
+## ido a mitad de partida. Volvió con OTRO id de conexión, así que le pasamos lo que tenía el id viejo.
+func reincorporar(id_viejo: int, id_nuevo: int) -> void:
+	if not soy_host:
+		return
+	for tabla: Dictionary in [puntos, tiempo_en_celda]:
+		if tabla.has(id_viejo):
+			tabla[id_nuevo] = tabla[id_viejo]
+			tabla.erase(id_viejo)
+	jugadores.erase(id_viejo)   # su lugar nuevo ya lo anotó red.gd en jugadores[id_nuevo]
+	nombres.erase(id_viejo)
+	if jugadores_conectados().size() >= 2:
+		esperando = 0.0   # volvió: sigue la ronda
 
 
 # ---------- CAÍDAS (solo host) ----------

@@ -90,7 +90,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if red.soy_host():
 			etiqueta_pausa.text = "Sos el host: si salís, se cierra la sala para todos."
 		else:
-			etiqueta_pausa.text = "Si salís, la partida sigue para los demás."
+			etiqueta_pausa.text = "Si salís, la partida sigue para los demás.\nPodés volver con el mismo código y recuperás tus puntos."
 		get_viewport().set_input_as_handled()
 
 
@@ -155,6 +155,8 @@ func _actualizar_aviso(en_sala: bool) -> void:
 		aviso.text = ""
 	elif yo != null and yo.caido and partida.estado != Partida.Estado.FINALIZADO:
 		aviso.text = "¡Afuera!\n%d" % maxi(ceili(yo.tiempo_para_volver()), 1)
+	elif partida.estado == Partida.Estado.JUGANDO and partida.esperando > 0.0:
+		aviso.text = "Esperando a que vuelva\n%s… %d" % [_nombres_ausentes(), ceili(partida.esperando)]
 	elif partida.estado == Partida.Estado.CUENTA_ATRAS:
 		aviso.text = str(maxi(ceili(partida.cuenta_atras), 1))
 	elif partida.estado == Partida.Estado.JUGANDO and partida.tiempo_restante > partida.duracion_ronda - 1.0:
@@ -162,9 +164,20 @@ func _actualizar_aviso(en_sala: bool) -> void:
 	else:
 		aviso.text = ""
 	if aviso.text != _aviso_anterior:
+		# La cuenta de espera cambia cada segundo: se anima solo al aparecer, no en cada número
+		var misma_espera := aviso.text.begins_with("Esperando") and _aviso_anterior.begins_with("Esperando")
 		_aviso_anterior = aviso.text
-		if aviso.text != "":
+		if aviso.text != "" and not misma_espera:
 			_animar_aviso()
+
+
+# Los que se fueron a mitad de partida (siguen en la tabla pero no tienen jugador en la arena).
+func _nombres_ausentes() -> String:
+	var lista := []
+	for id in partida.jugadores:
+		if partida.contenedor_jugadores.get_node_or_null(str(id)) == null:
+			lista.append(partida.nombre_jugador(id))
+	return ", ".join(lista) if not lista.is_empty() else "alguien"
 
 
 # Cada número "golpea" la pantalla: aparece grande y se achica.
