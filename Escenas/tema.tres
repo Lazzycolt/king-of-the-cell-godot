@@ -1,0 +1,189 @@
+[gd_resource type="Theme" format=3 uid="uid://cm3wq1mehnqd3"]
+
+[sub_resource type="StyleBoxFlat" id="principal_hover"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(1, 0.84, 0.3, 1)
+border_width_bottom = 4
+border_color = Color(0.75, 0.5, 0.08, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="principal_normal"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(1, 0.75, 0.1, 1)
+border_width_bottom = 4
+border_color = Color(0.7, 0.45, 0.05, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="principal_pressed"]
+content_margin_left = 18.0
+content_margin_top = 12.0
+content_margin_right = 18.0
+content_margin_bottom = 8.0
+bg_color = Color(0.88, 0.62, 0.06, 1)
+border_width_top = 2
+border_color = Color(0.6, 0.38, 0.04, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="boton_disabled"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(0.15, 0.16, 0.21, 0.7)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="boton_foco"]
+draw_center = false
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(1, 1, 1, 0.5)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+expand_margin_left = 2.0
+expand_margin_top = 2.0
+expand_margin_right = 2.0
+expand_margin_bottom = 2.0
+
+[sub_resource type="StyleBoxFlat" id="boton_hover"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(0.27, 0.3, 0.43, 1)
+border_width_bottom = 4
+border_color = Color(0.15, 0.16, 0.25, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="boton_normal"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(0.2, 0.22, 0.32, 1)
+border_width_bottom = 4
+border_color = Color(0.12, 0.13, 0.2, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="boton_pressed"]
+content_margin_left = 18.0
+content_margin_top = 12.0
+content_margin_right = 18.0
+content_margin_bottom = 8.0
+bg_color = Color(0.16, 0.17, 0.26, 1)
+border_width_top = 2
+border_color = Color(0.08, 0.09, 0.14, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxLine" id="separador"]
+color = Color(1, 1, 1, 0.12)
+thickness = 2
+
+[sub_resource type="StyleBoxFlat" id="campo_foco"]
+draw_center = false
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(1, 0.8, 0.1, 0.9)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="campo_normal"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.05, 0.06, 0.09, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.25, 0.27, 0.38, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="panel"]
+content_margin_left = 28.0
+content_margin_top = 24.0
+content_margin_right = 28.0
+content_margin_bottom = 24.0
+bg_color = Color(0.09, 0.1, 0.15, 0.94)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(1, 0.8, 0.1, 0.35)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+shadow_color = Color(0, 0, 0, 0.45)
+shadow_size = 12
+shadow_offset = Vector2(0, 6)
+
+[resource]
+default_font_size = 18
+BotonPrincipal/base_type = &"Button"
+BotonPrincipal/colors/font_color = Color(0.15, 0.1, 0.02, 1)
+BotonPrincipal/colors/font_focus_color = Color(0.15, 0.1, 0.02, 1)
+BotonPrincipal/colors/font_hover_color = Color(0.1, 0.07, 0.01, 1)
+BotonPrincipal/colors/font_pressed_color = Color(0.15, 0.1, 0.02, 1)
+BotonPrincipal/font_sizes/font_size = 22
+BotonPrincipal/styles/hover = SubResource("principal_hover")
+BotonPrincipal/styles/normal = SubResource("principal_normal")
+BotonPrincipal/styles/pressed = SubResource("principal_pressed")
+Button/colors/font_color = Color(0.92, 0.93, 1, 1)
+Button/colors/font_disabled_color = Color(0.5, 0.52, 0.6, 1)
+Button/colors/font_focus_color = Color(1, 1, 1, 1)
+Button/colors/font_hover_color = Color(1, 1, 1, 1)
+Button/colors/font_pressed_color = Color(0.85, 0.86, 0.95, 1)
+Button/font_sizes/font_size = 20
+Button/styles/disabled = SubResource("boton_disabled")
+Button/styles/focus = SubResource("boton_foco")
+Button/styles/hover = SubResource("boton_hover")
+Button/styles/normal = SubResource("boton_normal")
+Button/styles/pressed = SubResource("boton_pressed")
+HSeparator/styles/separator = SubResource("separador")
+Label/colors/font_color = Color(0.9, 0.91, 0.98, 1)
+LineEdit/colors/caret_color = Color(1, 0.8, 0.1, 1)
+LineEdit/colors/font_color = Color(1, 1, 1, 1)
+LineEdit/colors/font_placeholder_color = Color(0.5, 0.52, 0.62, 1)
+LineEdit/font_sizes/font_size = 20
+LineEdit/styles/focus = SubResource("campo_foco")
+LineEdit/styles/normal = SubResource("campo_normal")
+PanelContainer/styles/panel = SubResource("panel")
