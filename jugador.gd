@@ -236,12 +236,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## Corre en TODAS las PCs (también en la mía, por "call_local"). Muestra el emote arriba de esta bolita.
 @rpc("any_peer", "call_local", "reliable")
-func mostrar_emote(indice: int) -> void:
+func mostrar_emote(indice_emote: int) -> void:
 	if multiplayer.get_remote_sender_id() != get_multiplayer_authority():
 		return   # solo el dueño de esta bolita le puede poner un emote
-	if indice < 0 or indice >= emotes.size():
+	if indice_emote < 0 or indice_emote >= emotes.size():
 		return   # número que no existe: lo ignoramos
-	emote_actual = indice
+	emote_actual = indice_emote
 	tiempo_emote = duracion_emote
 
 ## El servidor la llama en TODAS las PCs cuando este jugador agarra un escudo.
