@@ -28,7 +28,14 @@ var indice := 0
 @export_group("Red")
 ## Qué tan rápido las copias de los OTROS jugadores alcanzan la posición que llega por red.[br]Más alto = más pegado al dato real pero más "a saltitos". Más bajo = más suave pero con más retraso.
 @export_range(1.0, 40.0, 0.5) var suavizado := 15.0
+@export_group("Emotes")
+## Las imágenes que se pueden mandar. La primera va con la tecla 1, la segunda con la 2, y así.
+@export var emotes: Array[Texture2D] = []
+## Cuántos segundos queda el emote arriba de la cabeza.
+@export_range(0.5, 5.0, 0.5, "suffix:s") var duracion_emote := 2.0
 
+var emote_actual := -1    # qué emote se está mostrando (-1 = ninguno)
+var tiempo_emote := 0.0   # segundos que le quedan visible
 const RADIO := 24.0
 
 # Posición que viaja por la red (la escribe el dueño, la leen los demás).
@@ -74,6 +81,7 @@ func _physics_process(delta: float) -> void:
 	escudo = maxf(escudo - delta, 0.0)
 	topetazo = maxf(topetazo - delta, 0.0)
 	lanzado = maxf(lanzado - delta, 0.0)
+	tiempo_emote = maxf(tiempo_emote - delta, 0.0)
 	if caido:
 		_tiempo_cayendo += delta
 	# Si este personaje no es mío, no leo input ni lo muevo:
@@ -212,6 +220,29 @@ func _levantar() -> void:
 func tiempo_para_volver() -> float:
 	return maxf(_partida.tiempo_caido - _tiempo_cayendo, 0.0) if caido else 0.0
 
+# ---------- EMOTES ----------
+
+## Solo en la PC del dueño: si aprieta 1, 2, 3 o 4, les avisa a todas las PCs qué emote mostrar.
+func _unhandled_input(event: InputEvent) -> void:
+	if not is_multiplayer_authority():
+		return   # es la bolita de otro: no leo sus teclas
+	if tiempo_emote > 0.0:
+		return   # todavía se ve el anterior: así nadie lo spamea
+	for i in emotes.size():
+		if event.is_action_pressed("emote_%d" % (i + 1)):
+			mostrar_emote.rpc(i)   # mandamos SOLO el número, no la imagen
+			return
+
+
+## Corre en TODAS las PCs (también en la mía, por "call_local"). Muestra el emote arriba de esta bolita.
+@rpc("any_peer", "call_local", "reliable")
+func mostrar_emote(indice: int) -> void:
+	if multiplayer.get_remote_sender_id() != get_multiplayer_authority():
+		return   # solo el dueño de esta bolita le puede poner un emote
+	if indice < 0 or indice >= emotes.size():
+		return   # número que no existe: lo ignoramos
+	emote_actual = indice
+	tiempo_emote = duracion_emote
 
 ## El servidor la llama en TODAS las PCs cuando este jugador agarra un escudo.
 @rpc("any_peer", "call_local", "reliable")
@@ -249,6 +280,7 @@ func _draw() -> void:
 	draw_circle(Vector2(-7, -8), RADIO * 0.35, Color(1, 1, 1, 0.25 * c.a))   # brillo
 	draw_arc(Vector2.ZERO, RADIO, 0, TAU, 40, c.darkened(0.45), 3.0)     # borde
 	_dibujar_nombre()
+	_dibujar_emote()
 	if escudo > 0.0:
 		# Anillo celeste. El último segundo y medio parpadea para avisar que se termina.
 		if escudo > 1.5 or int(escudo * 8) % 2 == 0:
@@ -288,3 +320,16 @@ func _dibujar_nombre() -> void:
 	draw_string_outline(fuente, pos / Vector2(1.0, estirar), nombre, HORIZONTAL_ALIGNMENT_LEFT, -1, tamano, 4, Color(0, 0, 0, 0.8))
 	draw_string(fuente, pos / Vector2(1.0, estirar), nombre, HORIZONTAL_ALIGNMENT_LEFT, -1, tamano, color_texto)
 	draw_set_transform(Vector2.ZERO)
+
+
+# El emote arriba de la cabeza (más arriba que el nombre y las estrellitas).
+func _dibujar_emote() -> void:
+	if tiempo_emote <= 0.0 or emote_actual < 0 or emote_actual >= emotes.size():
+		return
+	var ancho := 40.0
+	# La cámara aplasta la vista en vertical (igual que con el nombre): lo estiramos para que se vea derecho
+	var camara := get_viewport().get_camera_2d()
+	var alto := ancho if camara == null else ancho * camara.zoom.x / camara.zoom.y
+	var alfa := minf(tiempo_emote / 0.3, 1.0)   # se desvanece en el último ratito
+	var lugar := Rect2(-ancho / 2, -RADIO - 46 - alto, ancho, alto)
+	draw_texture_rect(emotes[emote_actual], lugar, false, Color(1, 1, 1, alfa))
