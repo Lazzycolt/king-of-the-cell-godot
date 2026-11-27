@@ -303,6 +303,7 @@ horizontal_alignment = 1
 
 [node name="Red" type="Node" parent="." unique_id=94712918 node_paths=PackedStringArray("spawner", "contenedor_jugadores", "partida", "spawns", "menu", "campo_codigo", "boton_crear", "boton_unirse", "etiqueta_estado", "etiqueta_usuario")]
 script = ExtResource("2_ea8m7")
+usar_steam = false
 spawner = NodePath("../MultiplayerSpawner")
 contenedor_jugadores = NodePath("../Jugadores")
 partida = NodePath("../Partida")
